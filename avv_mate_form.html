@@ -1,0 +1,1055 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AVV Mate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: compliance-plate workbench. A slim top bar, then one working column of
+   stamped "plates" (form sections) on a brushed-steel ground. Mono for every ID. */
+:root {
+  --ground:   #eef0f1;   /* brushed steel */
+  --plate:    #ffffff;
+  --ink:      #1c2328;
+  --ink-soft: #56626b;
+  --rule:     #d3d8dc;
+  --accent:   #0f5c6e;   /* deep petrol */
+  --accent-ink:#ffffff;
+  --accent-wash:#e3eff2;
+  --good:     #2f7a3e;  --good-wash:#e5f2e7;
+  --warn:     #9a6200;  --warn-wash:#fbf0dc;
+  --bad:      #a8322c;  --bad-wash: #f8e5e3;
+  --field:    #fbfcfc;
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body:    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --ground:#14191c; --plate:#1d2428; --ink:#e4e9ec; --ink-soft:#9aa7b0; --rule:#323c42;
+  --accent:#5fb3c6; --accent-ink:#0b1a1e; --accent-wash:#18323a;
+  --good:#7cc98a; --good-wash:#1a3020; --warn:#e3b25c; --warn-wash:#352a14;
+  --bad:#ef8a82; --bad-wash:#3a1d1b; --field:#171d20; color-scheme: dark;
+}}
+:root[data-theme="dark"] {
+  --ground:#14191c; --plate:#1d2428; --ink:#e4e9ec; --ink-soft:#9aa7b0; --rule:#323c42;
+  --accent:#5fb3c6; --accent-ink:#0b1a1e; --accent-wash:#18323a;
+  --good:#7cc98a; --good-wash:#1a3020; --warn:#e3b25c; --warn-wash:#352a14;
+  --bad:#ef8a82; --bad-wash:#3a1d1b; --field:#171d20; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--ground); color: var(--ink);
+  font: 15px/1.5 var(--font-body);
+}
+[hidden] { display: none !important; }
+.mono { font-family: var(--font-mono); font-size: .92em; }
+
+/* Top bar */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--plate); border-bottom: 1px solid var(--rule);
+}
+.bar-in {
+  max-width: 1080px; margin: 0 auto;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px));
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+}
+.brand { font: 700 22px/1 var(--font-display); letter-spacing: .02em; display: flex; align-items: baseline; gap: 8px; }
+.brand small { font: 500 12px var(--font-body); color: var(--ink-soft); letter-spacing: .06em; text-transform: uppercase; }
+nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav a {
+  font: 600 15px var(--font-display); letter-spacing: .04em; text-transform: uppercase;
+  color: var(--ink-soft); text-decoration: none; padding: 6px 12px; border-radius: 4px;
+}
+nav a:hover { color: var(--ink); background: var(--accent-wash); }
+nav a[aria-current="page"] { color: var(--accent); background: var(--accent-wash); }
+.conn { margin-left: auto; font-size: 13px; display: flex; align-items: center; gap: 6px; color: var(--ink-soft); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rule); }
+.conn.ok .dot { background: var(--good); }
+.conn.bad .dot { background: var(--bad); }
+.conn.bad { color: var(--bad); }
+
+main {
+  max-width: 1080px; margin: 0 auto;
+  padding-block: 24px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1 { font: 700 30px/1.1 var(--font-display); margin: 0; text-wrap: balance; letter-spacing: .01em; }
+.page-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.page-head p { margin: 4px 0 0; color: var(--ink-soft); }
+
+/* Plates */
+.plates { display: grid; gap: 16px; }
+.plate {
+  background: var(--plate); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 18px 20px 20px;
+}
+.plate h2 {
+  font: 600 14px/1 var(--font-display); text-transform: uppercase; letter-spacing: .12em;
+  color: var(--ink-soft); margin: 0 0 14px; display: flex; gap: 10px; align-items: center;
+}
+.plate h2::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+.grid { display: grid; gap: 14px 16px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.grid .wide { grid-column: span 2; }
+@media (max-width: 480px) { .grid .wide { grid-column: auto; } }
+
+label.f { display: grid; gap: 4px; min-width: 0; }
+label.f > span { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); letter-spacing: .02em; }
+label.f > span em { font-style: normal; color: var(--bad); }
+input, select, textarea {
+  font: inherit; color: var(--ink); background: var(--field);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; width: 100%; min-width: 0;
+}
+input.mono, select.mono { font-family: var(--font-mono); font-size: 14px; }
+textarea { min-height: 70px; resize: vertical; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+input:disabled, select:disabled, textarea:disabled { opacity: .7; cursor: not-allowed; }
+.hint { font-size: 12.5px; color: var(--ink-soft); min-height: 1em; }
+.hint.warn { color: var(--warn); }
+.hint.bad { color: var(--bad); }
+.hint.good { color: var(--good); }
+.inline-add { display: flex; gap: 6px; }
+.inline-add select { flex: 1; }
+
+/* Checklist */
+.checks { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(275px, 1fr)); }
+.check {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 6px 6px 6px 12px; background: var(--field);
+}
+.check b { font: 600 14px var(--font-mono); white-space: nowrap; }
+.check small { display: block; color: var(--ink-soft); font-size: 12px; line-height: 1.2; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; flex-shrink: 0; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; width: 1px; }
+.seg label { font-size: 12px; font-weight: 600; padding: 4px 8px; cursor: pointer; color: var(--ink-soft); }
+.seg label + input + label { border-left: 1px solid var(--rule); }
+.seg input:checked + label.r { background: var(--good-wash); color: var(--good); }
+.seg input:checked + label.m { background: var(--bad-wash); color: var(--bad); }
+.seg input:checked + label.n { background: var(--accent-wash); color: var(--ink); }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Workflow dates: a real sequence, so numbered */
+.steps { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); counter-reset: step; }
+.steps label.f > span::before { counter-increment: step; content: counter(step) " · "; color: var(--accent); }
+
+/* Buttons */
+.btn {
+  font: 600 15px var(--font-display); letter-spacing: .05em; text-transform: uppercase;
+  border: 1px solid var(--rule); background: var(--plate); color: var(--ink);
+  border-radius: 4px; padding: 9px 16px; cursor: pointer; white-space: nowrap;
+}
+.btn:hover { border-color: var(--ink-soft); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
+.btn.small { font-size: 13px; padding: 6px 10px; }
+.btn:disabled { opacity: .55; cursor: progress; }
+.actions {
+  position: sticky; bottom: 0; z-index: 4; margin-top: 16px;
+  background: var(--plate); border: 1px solid var(--rule); border-radius: 6px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.actions .msg { flex: 1; min-width: 200px; font-size: 14px; }
+
+/* Banners */
+.banner { border-radius: 6px; padding: 12px 16px; border: 1px solid; font-size: 14px; }
+.banner.warn { background: var(--warn-wash); border-color: var(--warn); color: var(--ink); }
+.banner.bad  { background: var(--bad-wash);  border-color: var(--bad);  color: var(--ink); }
+.banner.info { background: var(--accent-wash); border-color: var(--accent); color: var(--ink); }
+.banner b { display: block; margin-bottom: 2px; }
+.banner code { font-family: var(--font-mono); }
+
+/* Jobs table */
+.filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.filters input { flex: 2; min-width: 200px; }
+.filters select { flex: 1; min-width: 160px; }
+.filters label.tog { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink-soft); }
+.filters label.tog input { width: auto; }
+.table-wrap { overflow-x: auto; background: var(--plate); border: 1px solid var(--rule); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font: 600 12px var(--font-display); text-transform: uppercase; letter-spacing: .1em; color: var(--ink-soft); background: var(--field); }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--accent-wash); }
+tbody tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; }
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+.pill.valid { background: var(--accent-wash); color: var(--accent); }
+.pill.done  { background: var(--good-wash); color: var(--good); }
+.pill.err   { background: var(--bad-wash); color: var(--bad); }
+.empty { padding: 28px; text-align: center; color: var(--ink-soft); }
+.more { margin-top: 10px; color: var(--ink-soft); font-size: 13px; }
+
+/* Lists */
+.lists-nav { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.lists-nav button {
+  font: 600 14px var(--font-display); letter-spacing: .05em; text-transform: uppercase;
+  background: transparent; border: 1px solid var(--rule); border-radius: 99px; padding: 5px 12px;
+  color: var(--ink-soft); cursor: pointer;
+}
+.lists-nav button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.ref-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 14px; }
+.ref-form label.f { flex: 1 1 170px; }
+.ref-form .btn { flex: 0 0 auto; }
+
+/* Toast */
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(90px + env(safe-area-inset-bottom, 0px)); z-index: 20;
+  background: var(--ink); color: var(--plate); padding: 10px 18px; border-radius: 6px;
+  font-size: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.2); max-width: calc(100% - 32px);
+}
+@media (prefers-reduced-motion: no-preference) { .toast { animation: rise .2s ease-out; } }
+@keyframes rise { from { transform: translate(-50%, 8px); opacity: 0; } }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="bar-in">
+    <div class="brand">AVV Mate <small>Compliance jobs</small></div>
+    <nav>
+      <a href="#new" id="nav-new">New job</a>
+      <a href="#jobs" id="nav-jobs">Jobs</a>
+      <a href="#lists" id="nav-lists">Lists</a>
+    </nav>
+    <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">Connecting to Supabase…</span></div>
+  </div>
+</header>
+
+<main>
+  <div id="setup-banner" class="banner bad" hidden style="margin-bottom:16px"></div>
+
+  <!-- ============ JOB FORM (new + edit) ============ -->
+  <section id="view-form" hidden>
+    <div class="page-head">
+      <div>
+        <h1 id="form-title">New job</h1>
+        <p id="form-sub">Enter the vehicle, its approvals and where the job is up to.</p>
+      </div>
+      <button class="btn" type="button" id="btn-new-blank" hidden>Start a new job</button>
+    </div>
+
+    <div id="errored-banner" class="banner bad" hidden style="margin-bottom:16px"></div>
+
+    <form id="job-form" novalidate>
+      <div class="plates">
+
+        <div class="plate">
+          <h2>Job</h2>
+          <div class="grid">
+            <label class="f"><span>Folder # <em>*</em></span>
+              <input id="f_folder" class="mono" placeholder="SVC1040" autocomplete="off"></label>
+            <label class="f"><span>Customer request received</span>
+              <input id="f_received" type="date"></label>
+            <label class="f wide"><span>Customer</span>
+              <div class="inline-add">
+                <select id="f_customer"></select>
+                <button class="btn small" type="button" data-goto-list="customers" title="Add a customer in Lists">+ New</button>
+              </div></label>
+            <label class="f"><span>CMPL RAW (workshop)</span>
+              <select id="f_cmpl_raw" class="mono"></select></label>
+            <label class="f"><span>Approval holder</span>
+              <select id="f_holder" class="mono"></select></label>
+            <label class="f"><span>VIA #</span>
+              <input id="f_via" class="mono" placeholder="CRE-144626" autocomplete="off"></label>
+          </div>
+        </div>
+
+        <div class="plate">
+          <h2>Vehicle</h2>
+          <div class="grid">
+            <label class="f wide"><span>VIN # <em>*</em></span>
+              <input id="f_vin" class="mono" maxlength="20" placeholder="6ZZL000GR31015208" autocomplete="off" spellcheck="false">
+              <span class="hint" id="h_vin"></span></label>
+            <label class="f"><span>Build date (month) <em>*</em></span>
+              <input id="f_build" type="month"></label>
+            <label class="f wide"><span>MRE (model report entry) <em>*</em></span>
+              <div class="inline-add">
+                <select id="f_mre" class="mono"></select>
+                <button class="btn small" type="button" data-goto-list="mres">+ New</button>
+              </div>
+              <span class="hint" id="h_mre"></span></label>
+            <label class="f wide"><span>SEV No</span>
+              <div class="inline-add">
+                <select id="f_sev" class="mono"></select>
+                <button class="btn small" type="button" data-goto-list="sevs">+ New</button>
+              </div>
+              <span class="hint" id="h_sev"></span></label>
+            <label class="f"><span>VCC</span>
+              <select id="f_vcc">
+                <option value="">Select…</option>
+                <option value="MA">MA · Passenger car</option>
+                <option value="MB">MB · Forward-control passenger</option>
+                <option value="MC">MC · Off-road passenger</option>
+                <option value="NA">NA · Light goods (≤ 3.5 t)</option>
+                <option value="NB1">NB1 · Medium goods (3.5–4.5 t)</option>
+                <option value="NB2">NB2 · Medium goods (4.5–12 t)</option>
+              </select></label>
+            <label class="f"><span>Tare (kg)</span>
+              <input id="f_tare" type="number" inputmode="numeric" min="1" step="1" placeholder="1260"></label>
+            <label class="f"><span>Power (kW)</span>
+              <input id="f_power" type="number" inputmode="numeric" min="1" step="1" placeholder="90"></label>
+            <label class="f"><span>Seats</span>
+              <input id="f_seats" type="number" inputmode="numeric" min="1" max="60" step="1" placeholder="5"></label>
+          </div>
+        </div>
+
+        <div class="plate">
+          <h2>Model report</h2>
+          <div class="grid">
+            <label class="f wide"><span>Model report author</span>
+              <div class="inline-add">
+                <select id="f_author"></select>
+                <button class="btn small" type="button" data-goto-list="authors">+ New</button>
+              </div></label>
+            <label class="f wide"><span>Model report unique ID</span>
+              <input id="f_uid" class="mono" placeholder="CPT-VCFRUC or AVV-2025-597-8" autocomplete="off"></label>
+          </div>
+        </div>
+
+        <div class="plate">
+          <h2>Document checklist</h2>
+          <div class="checks" id="checks"></div>
+        </div>
+
+        <div class="plate">
+          <h2>Workflow</h2>
+          <div class="steps">
+            <label class="f"><span>Recall check</span><input id="f_recall" type="date"></label>
+            <label class="f"><span>AVV verification</span><input id="f_verified" type="date"></label>
+            <label class="f"><span>AVV submit</span><input id="f_submitted" type="date"></label>
+            <label class="f"><span>RAV date of entry</span><input id="f_rav_entered" type="date"></label>
+            <label class="f"><span>Approval payment</span><input id="f_paid" type="date"></label>
+          </div>
+          <div class="hint warn" id="h_dates" style="margin-top:8px"></div>
+          <div class="grid" style="margin-top:12px">
+            <label class="f wide"><span>RAV submitter</span>
+              <div class="inline-add">
+                <select id="f_submitter" class="mono"></select>
+                <button class="btn small" type="button" data-goto-list="submitters">+ New</button>
+              </div></label>
+            <label class="f" style="align-content:end">
+              <span>Status</span>
+              <span style="display:flex;gap:8px;align-items:center;font-weight:500;color:var(--ink)">
+                <input id="f_completed" type="checkbox" style="width:auto"> Job complete
+              </span></label>
+          </div>
+        </div>
+
+        <!-- RAV correction (edit mode only) -->
+        <div class="plate" id="correct-plate" hidden>
+          <h2>Correct RAV entry</h2>
+          <p style="margin:0 0 12px;color:var(--ink-soft)">Use this only when the RAV entry for this vehicle was wrong.
+            This folder is kept and marked <b>errored</b>. The values in the form above become a new, corrected entry under a new folder number,
+            so fix whatever was wrong above before you save.</p>
+          <div class="grid">
+            <label class="f wide"><span>What was wrong in the RAV entry? <em>*</em></span>
+              <textarea id="c_note" placeholder="Build date entered as 10/2009, should be 09/2010"></textarea></label>
+            <label class="f"><span>New folder # <em>*</em></span>
+              <input id="c_folder" class="mono" autocomplete="off"></label>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+            <button class="btn danger" type="button" id="btn-correct">Mark errored and save correction</button>
+            <button class="btn" type="button" id="btn-correct-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <div class="msg" id="form-msg"></div>
+        <button class="btn" type="button" id="btn-show-correct" hidden>Correct RAV entry…</button>
+        <button class="btn" type="button" id="btn-clear">Clear</button>
+        <button class="btn primary" type="submit" id="btn-save">Save job</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ============ JOBS LIST ============ -->
+  <section id="view-jobs" hidden>
+    <div class="page-head">
+      <div><h1>Jobs</h1><p>Newest folders first. Select a row to open it.</p></div>
+      <a class="btn primary" href="#new" style="text-decoration:none">New job</a>
+    </div>
+    <div class="filters">
+      <input id="q" placeholder="Search folder # or VIN" autocomplete="off" spellcheck="false">
+      <select id="q_customer"></select>
+      <label class="tog"><input type="checkbox" id="q_errored"> Show errored entries</label>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Folder</th><th>VIN</th><th>Vehicle</th><th>Build</th><th>Customer</th>
+          <th>Received</th><th>RAV entry</th><th>Status</th>
+        </tr></thead>
+        <tbody id="jobs-body"><tr><td colspan="8" class="empty">Loading jobs…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="more" id="jobs-more"></div>
+  </section>
+
+  <!-- ============ LISTS ============ -->
+  <section id="view-lists" hidden>
+    <div class="page-head">
+      <div><h1>Lists</h1><p>The options that appear in the job form's dropdowns.</p></div>
+    </div>
+    <div class="lists-nav" id="lists-nav"></div>
+    <div class="plate">
+      <form class="ref-form" id="ref-form" novalidate></form>
+      <div class="hint" id="ref-msg" style="margin:-6px 0 10px"></div>
+      <div class="table-wrap" style="border:0">
+        <table><thead id="ref-head"></thead><tbody id="ref-body"></tbody></table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+/* ===================== Connection ===================== */
+const SUPABASE_URL = "https://xmlgblcctiahyhxqmcvo.supabase.co";
+const SUPABASE_KEY = "sb_publishable_Gfq7Jm4aZds9qT-PrUVaNA_I7xVfwi0";
+
+class ApiError extends Error {
+  constructor(status, body) {
+    super((body && (body.message || body.msg || body.error_description)) || ("HTTP " + status));
+    this.status = status; this.body = body || {};
+  }
+}
+
+async function api(path, { method = "GET", body, prefer } = {}) {
+  const headers = { apikey: SUPABASE_KEY, "Content-Type": "application/json", Accept: "application/json" };
+  if (prefer) headers.Prefer = prefer;
+  let res;
+  try {
+    res = await fetch(SUPABASE_URL + "/rest/v1/" + path, {
+      method, headers, body: body === undefined ? undefined : JSON.stringify(body)
+    });
+  } catch (e) {
+    throw new ApiError(0, { message: "Can't reach Supabase. Check your internet connection." });
+  }
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
+  if (!res.ok) throw new ApiError(res.status, data);
+  return data;
+}
+const rpc = (fn, args) => api("rpc/" + fn, { method: "POST", body: args });
+
+function friendly(err) {
+  const b = err.body || {}, msg = b.message || err.message || "";
+  const detail = b.details || "";
+  if (err.status === 0) return msg;
+  if (b.code === "42501" || /row-level security|permission denied/i.test(msg))
+    return "Supabase blocked this. Run avv_supabase_setup.sql in the Supabase SQL editor so the form can read and write.";
+  if (b.code === "PGRST202" || /Could not find the function/i.test(msg))
+    return "The save functions aren't in your database yet. Run avv_supabase_setup.sql in the Supabase SQL editor.";
+  if (/one_valid_rav_per_vin/.test(msg))
+    return "This VIN already has a valid RAV entry. Open that job from the Jobs list and use Correct RAV entry instead.";
+  if (/jobs_pkey/.test(msg)) return "That folder number is already used. Pick the next free one.";
+  if (/jobs_via_no_key/.test(msg)) return "That VIA number is already on another job.";
+  if (/vehicles_vcc_check/.test(msg)) return "That VCC code isn't allowed.";
+  if (b.code === "23505") return "That value already exists. " + detail;
+  if (b.code === "23503") return "One of the selected options no longer exists in its list. " + detail;
+  if (b.code === "23502") return "A required field is empty. " + detail;
+  if (b.code === "22007" || b.code === "22008") return "One of the dates isn't valid.";
+  if (b.code === "P0001") return msg;
+  return msg || "Something went wrong saving to Supabase.";
+}
+
+/* ===================== Helpers ===================== */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const val = (id) => { const v = $(id).value.trim(); return v === "" ? null : v; };
+const intVal = (id) => { const v = val(id); return v === null ? null : parseInt(v, 10); };
+const clean = (s) => (s ?? "").replace(/\s+/g, " ").trim();
+function fmtDate(d) { if (!d) return "—"; const [y, m, dd] = d.split("-"); return `${dd}/${m}/${y}`; }
+function fmtMonth(d) { if (!d) return null; const [y, m] = d.split("-"); return `${m}/${y}`; }
+function rangeText(from, to) {
+  if (!from && !to) return "no build range recorded";
+  return `build ${fmtMonth(from) || "?"} – ${to ? fmtMonth(to) : "no end date"}`;
+}
+function toast(text) {
+  const t = $("toast"); t.textContent = text; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 3200);
+}
+function setMsg(id, text, kind) { const el = $(id); el.textContent = text || ""; el.className = (id === "form-msg" ? "msg " : "hint ") + (kind || ""); }
+function nextFolder(last) {
+  const m = /^([A-Za-z]*)(\d+)$/.exec(last || "");
+  if (!m) return "SVC0001";
+  return m[1] + String(parseInt(m[2], 10) + 1).padStart(m[2].length, "0");
+}
+
+/* ===================== Reference data ===================== */
+const ref = { workshops: [], customers: [], authors: [], submitters: [], mres: [], sevs: [], links: [] };
+
+async function loadRefs() {
+  const [workshops, customers, authors, submitters, mres, sevs, links] = await Promise.all([
+    api("workshops?select=*&order=name"),
+    api("customers?select=*&order=name"),
+    api("report_authors?select=*&order=name"),
+    api("rav_submitters?select=*&order=submitter_id"),
+    api("model_reports?select=*&order=mre_no"),
+    api("sev_entries?select=*&order=sev_no"),
+    api("mre_sev?select=*"),
+  ]);
+  Object.assign(ref, { workshops, customers, authors, submitters, mres, sevs, links });
+  fillFormSelects();
+}
+
+function options(items, valueKey, labelFn, placeholder) {
+  return `<option value="">${esc(placeholder)}</option>` +
+    items.map(i => `<option value="${esc(i[valueKey])}">${esc(labelFn(i))}</option>`).join("");
+}
+function keepValue(sel, html) { const v = sel.value; sel.innerHTML = html; sel.value = v; }
+
+function fillFormSelects() {
+  keepValue($("f_customer"), options(ref.customers, "customer_id", c => c.name, "Select customer…"));
+  const ws = options(ref.workshops, "raw_number", w => `${w.raw_number} · ${w.name}`, "Select workshop…");
+  keepValue($("f_cmpl_raw"), ws);
+  keepValue($("f_holder"), ws);
+  keepValue($("f_author"), options(ref.authors, "author_id", a => a.name, "Select author…"));
+  keepValue($("f_submitter"), options(ref.submitters, "submitter_id", s => `${s.submitter_id} · ${s.authorised_by_no} · ${s.authorised_entity}`, "Select submitter…"));
+  keepValue($("f_mre"), options(ref.mres, "mre_no", m => `${m.mre_no} · ${m.make} ${m.model}`, "Select MRE…"));
+  fillSevSelect();
+  keepValue($("q_customer"), options(ref.customers, "customer_id", c => c.name, "All customers"));
+}
+
+function fillSevSelect() {
+  const sel = $("f_sev"), mre = $("f_mre").value, current = sel.value;
+  const linked = new Set(ref.links.filter(l => l.mre_no === mre).map(l => l.sev_no));
+  const label = s => `${s.sev_no} · ${rangeText(s.build_from, s.build_to)}`;
+  const opt = s => `<option value="${esc(s.sev_no)}">${esc(label(s))}</option>`;
+  let html = `<option value="">No SEV / select…</option>`;
+  if (linked.size) {
+    html += `<optgroup label="Used with this MRE before">${ref.sevs.filter(s => linked.has(s.sev_no)).map(opt).join("")}</optgroup>`;
+    html += `<optgroup label="All SEVs">${ref.sevs.filter(s => !linked.has(s.sev_no)).map(opt).join("")}</optgroup>`;
+  } else html += ref.sevs.map(opt).join("");
+  sel.innerHTML = html; sel.value = current;
+}
+
+/* ===================== Checklist ===================== */
+const DOCS = [
+  ["EXP_CERT", "EXP CERT", "Export certificate"],
+  ["CIN", "CIN", "Import approval"],
+  ["MN", "M&N", "M&N"],
+  ["WI", "WI", "Work instructions"],
+  ["DC", "DC", "Deregistration cert."],
+  ["VI", "VI", "Vehicle inspection"],
+  ["PHOTOS", "PHOTOS", "Vehicle photos"],
+  ["RAW_DECLA", "RAW DECLA", "RAW declaration"],
+];
+const DOC_DEFAULT = { MN: "not_applicable" };
+
+function buildChecklist() {
+  $("checks").innerHTML = DOCS.map(([key, code, name]) => `
+    <div class="check">
+      <div><b>${esc(code)}</b><small>${esc(name)}</small></div>
+      <div class="seg" role="radiogroup" aria-label="${esc(code)}">
+        <input type="radio" name="doc_${key}" id="doc_${key}_r" value="received"><label class="r" for="doc_${key}_r">Have</label>
+        <input type="radio" name="doc_${key}" id="doc_${key}_m" value="missing"><label class="m" for="doc_${key}_m">Missing</label>
+        <input type="radio" name="doc_${key}" id="doc_${key}_n" value="not_applicable"><label class="n" for="doc_${key}_n">N/A</label>
+      </div>
+    </div>`).join("");
+  resetChecklist();
+}
+function resetChecklist() {
+  DOCS.forEach(([key]) => setDoc(key, DOC_DEFAULT[key] || "missing"));
+}
+function setDoc(key, status) {
+  const el = document.querySelector(`input[name="doc_${key}"][value="${status}"]`);
+  if (el) el.checked = true;
+}
+function readDocs() {
+  return DOCS.map(([key]) => {
+    const c = document.querySelector(`input[name="doc_${key}"]:checked`);
+    return { doc_type: key, status: c ? c.value : "missing" };
+  });
+}
+
+/* ===================== Form state ===================== */
+const FORM_FIELDS = ["f_folder","f_received","f_customer","f_cmpl_raw","f_holder","f_via","f_vin","f_build","f_mre","f_sev",
+  "f_vcc","f_tare","f_power","f_seats","f_author","f_uid","f_recall","f_verified","f_submitted","f_rav_entered","f_paid","f_submitter","f_completed"];
+
+let mode = "new";          // "new" | "edit"
+let editing = null;        // job row being edited
+let rawAuto = true;        // CMPL RAW / holder follow the customer until changed by hand
+
+function readVehicle() {
+  const month = val("f_build");
+  return {
+    vin: (val("f_vin") || "").toUpperCase(),
+    build_date: month ? month + "-01" : null,
+    mre_no: val("f_mre"),
+    sev_no: val("f_sev"),
+    vcc: val("f_vcc"),
+    tare_kg: intVal("f_tare"),
+    power_kw: intVal("f_power"),
+    seats: intVal("f_seats"),
+  };
+}
+function readJob() {
+  return {
+    folder_no: (val("f_folder") || "").toUpperCase(),
+    vin: (val("f_vin") || "").toUpperCase(),
+    via_no: val("f_via"),
+    model_report_uid: val("f_uid"),
+    customer_id: intVal("f_customer"),
+    cmpl_raw_number: val("f_cmpl_raw"),
+    approval_holder_raw: val("f_holder"),
+    author_id: intVal("f_author"),
+    rav_submitter_id: val("f_submitter"),
+    request_received: val("f_received"),
+    recall_check: val("f_recall"),
+    avv_verified: val("f_verified"),
+    avv_submitted: val("f_submitted"),
+    rav_entered: val("f_rav_entered"),
+    approval_paid: val("f_paid"),
+    completed: $("f_completed").checked,
+    rav_status: "valid",
+    supersedes_folder_no: null,
+    error_note: null,
+  };
+}
+
+function validate() {
+  const v = readVehicle(), j = readJob(), missing = [];
+  if (!j.folder_no) missing.push("folder #");
+  if (!v.vin) missing.push("VIN");
+  if (!v.build_date) missing.push("build date");
+  if (!v.mre_no) missing.push("MRE");
+  if (missing.length) return "Fill in the " + missing.join(", ") + " before saving.";
+  return null;
+}
+
+async function prepareNew() {
+  mode = "new"; editing = null; rawAuto = true;
+  $("job-form").reset();
+  resetChecklist();
+  setDisabled(false);
+  $("form-title").textContent = "New job";
+  $("form-sub").textContent = "Enter the vehicle, its approvals and where the job is up to.";
+  $("btn-save").textContent = "Save job";
+  $("btn-new-blank").hidden = true;
+  $("btn-show-correct").hidden = true;
+  $("btn-clear").hidden = false;
+  $("correct-plate").hidden = true;
+  $("errored-banner").hidden = true;
+  $("f_vin").disabled = false;
+  $("f_received").value = todayISO();
+  ["h_vin","h_mre","h_sev","h_dates"].forEach(h => setMsg(h, ""));
+  setMsg("form-msg", "");
+  fillSevSelect();
+  try {
+    const last = await api("jobs?select=folder_no&order=folder_no.desc&limit=1");
+    if (mode === "new" && !$("f_folder").value) $("f_folder").value = nextFolder(last[0] && last[0].folder_no);
+  } catch (e) { /* connection banner already handles this */ }
+}
+
+function todayISO() {
+  const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
+function setDisabled(dis) {
+  document.querySelectorAll("#job-form input, #job-form select, #job-form textarea").forEach(el => {
+    if (el.closest("#correct-plate")) return;
+    el.disabled = dis;
+  });
+  $("btn-save").hidden = dis;
+  $("btn-clear").hidden = dis || mode === "edit";
+  document.querySelectorAll("[data-goto-list]").forEach(b => b.disabled = dis);
+}
+
+async function openJob(folder) {
+  setMsg("form-msg", "Loading " + folder + "…");
+  location.hash = "#edit";
+  showView("form");
+  try {
+    const [jobs, docs] = await Promise.all([
+      api(`jobs?folder_no=eq.${encodeURIComponent(folder)}&select=*,vehicles(*)`),
+      api(`job_documents?folder_no=eq.${encodeURIComponent(folder)}&select=*`),
+    ]);
+    const j = jobs[0];
+    if (!j) { setMsg("form-msg", "Folder " + folder + " wasn't found.", "bad"); return; }
+    const v = j.vehicles || {};
+    mode = "edit"; editing = j; rawAuto = false;
+    $("job-form").reset();
+    const set = (id, x) => $(id).value = x ?? "";
+    set("f_folder", j.folder_no); set("f_received", j.request_received); set("f_customer", j.customer_id);
+    set("f_cmpl_raw", j.cmpl_raw_number); set("f_holder", j.approval_holder_raw); set("f_via", j.via_no);
+    set("f_vin", j.vin); set("f_build", v.build_date ? v.build_date.slice(0, 7) : "");
+    set("f_mre", v.mre_no); fillSevSelect(); set("f_sev", v.sev_no);
+    set("f_vcc", v.vcc); set("f_tare", v.tare_kg); set("f_power", v.power_kw); set("f_seats", v.seats);
+    set("f_author", j.author_id); set("f_uid", j.model_report_uid);
+    set("f_recall", j.recall_check); set("f_verified", j.avv_verified); set("f_submitted", j.avv_submitted);
+    set("f_rav_entered", j.rav_entered); set("f_paid", j.approval_paid); set("f_submitter", j.rav_submitter_id);
+    $("f_completed").checked = !!j.completed;
+    resetChecklist(); docs.forEach(d => setDoc(d.doc_type, d.status));
+
+    $("form-title").innerHTML = `Folder <span class="mono">${esc(j.folder_no)}</span>`;
+    $("form-sub").textContent = "Edit the job and save your changes.";
+    $("btn-save").textContent = "Save changes";
+    $("btn-new-blank").hidden = false;
+    $("correct-plate").hidden = true;
+    $("f_folder").disabled = true;
+
+    const errored = j.rav_status === "errored";
+    setDisabled(errored);
+    $("f_folder").disabled = true;
+    $("f_vin").disabled = true;
+    $("btn-show-correct").hidden = errored;
+
+    const banner = $("errored-banner");
+    if (errored) {
+      const fixedBy = await api(`jobs?supersedes_folder_no=eq.${encodeURIComponent(j.folder_no)}&select=folder_no`).catch(() => []);
+      banner.innerHTML = `<b>This RAV entry was marked errored.</b>${esc(j.error_note || "No note recorded.")}` +
+        (fixedBy[0] ? ` Corrected by <a href="#" data-open="${esc(fixedBy[0].folder_no)}" class="mono">${esc(fixedBy[0].folder_no)}</a>.` : "") +
+        " It's kept for the record and can't be edited.";
+      banner.hidden = false;
+    } else if (j.supersedes_folder_no) {
+      banner.className = "banner info";
+      banner.innerHTML = `<b>Corrected entry.</b>This folder replaces <a href="#" data-open="${esc(j.supersedes_folder_no)}" class="mono">${esc(j.supersedes_folder_no)}</a>, which had an error in its RAV entry.`;
+      banner.hidden = false;
+    } else banner.hidden = true;
+    if (errored) banner.className = "banner bad";
+
+    checkMre(); checkDates(); setMsg("h_vin", "");
+    setMsg("form-msg", "");
+  } catch (e) { setMsg("form-msg", friendly(e), "bad"); }
+}
+
+/* ===================== Live checks ===================== */
+let vinTimer;
+function onVinInput() {
+  const el = $("f_vin");
+  const pos = el.selectionStart; el.value = el.value.toUpperCase().replace(/\s/g, ""); el.setSelectionRange(pos, pos);
+  clearTimeout(vinTimer);
+  const vin = el.value;
+  if (!vin) return setMsg("h_vin", "");
+  const lenNote = vin.length === 17 ? "" : `${vin.length} of 17 characters. `;
+  if (/[IOQ]/.test(vin)) return setMsg("h_vin", lenNote + "VINs never contain I, O or Q. Check for 1 or 0.", "warn");
+  setMsg("h_vin", lenNote, lenNote ? "warn" : "");
+  if (vin.length < 11 || mode !== "new") return;
+  vinTimer = setTimeout(async () => {
+    try {
+      const rows = await api(`jobs?vin=eq.${encodeURIComponent(vin)}&select=folder_no,rav_status&order=folder_no.desc`);
+      if ($("f_vin").value !== vin) return;
+      const valid = rows.find(r => r.rav_status === "valid");
+      if (valid) {
+        $("h_vin").innerHTML = `Already in RAV under <a href="#" data-open="${esc(valid.folder_no)}" class="mono">${esc(valid.folder_no)}</a>. Open it and use Correct RAV entry if the entry was wrong.`;
+        $("h_vin").className = "hint bad";
+      } else if (rows.length) {
+        setMsg("h_vin", "This VIN only has errored entries. Saving will create a new valid entry.", "warn");
+      } else setMsg("h_vin", lenNote || "New VIN.", lenNote ? "warn" : "good");
+    } catch (e) { /* ignore during typing */ }
+  }, 400);
+}
+
+function checkMre() {
+  const m = ref.mres.find(x => x.mre_no === $("f_mre").value);
+  if (!m) return setMsg("h_mre", "");
+  let text = `${m.make} ${m.model} · ${rangeText(m.build_from, m.build_to)}`, kind = "";
+  const b = $("f_build").value ? $("f_build").value + "-01" : null;
+  if (b && ((m.build_from && b < m.build_from) || (m.build_to && b > m.build_to))) {
+    text += ". The build date is outside this MRE's range."; kind = "warn";
+  }
+  setMsg("h_mre", text, kind);
+  checkSev();
+}
+function checkSev() {
+  const s = ref.sevs.find(x => x.sev_no === $("f_sev").value);
+  if (!s) return setMsg("h_sev", "");
+  const b = $("f_build").value ? $("f_build").value + "-01" : null;
+  const out = b && ((s.build_from && b < s.build_from) || (s.build_to && b > s.build_to));
+  setMsg("h_sev", out ? `The build date is outside this SEV's range (${rangeText(s.build_from, s.build_to)}).` : rangeText(s.build_from, s.build_to), out ? "warn" : "");
+}
+function checkDates() {
+  const steps = [["f_recall","recall check"],["f_verified","AVV verification"],["f_submitted","AVV submit"],["f_rav_entered","RAV entry"],["f_paid","approval payment"]];
+  let prev = null, note = "";
+  for (const [id, name] of steps) {
+    const v = val(id);
+    if (v && prev && v < prev.v) { note = `The ${name} date is before the ${prev.name} date.`; break; }
+    if (v) prev = { v, name };
+  }
+  setMsg("h_dates", note, "warn");
+}
+function onCustomer() {
+  if (!rawAuto && mode === "edit") return;
+  const c = ref.customers.find(x => String(x.customer_id) === $("f_customer").value);
+  if (c && c.raw_number) { $("f_cmpl_raw").value = c.raw_number; $("f_holder").value = c.raw_number; }
+}
+
+/* ===================== Save ===================== */
+async function saveJob(ev) {
+  ev.preventDefault();
+  const problem = validate();
+  if (problem) return setMsg("form-msg", problem, "bad");
+  const btn = $("btn-save"); btn.disabled = true;
+  setMsg("form-msg", "Saving…");
+  try {
+    if (mode === "new") {
+      const folder = await rpc("save_new_job", { p_vehicle: readVehicle(), p_job: readJob(), p_docs: readDocs() });
+      toast(`Saved ${folder}`);
+      await prepareNew();
+      setMsg("form-msg", `${folder} saved. Ready for the next job.`, "good");
+    } else {
+      const v = readVehicle(), j = readJob();
+      delete v.vin; delete j.folder_no; delete j.vin;
+      delete j.rav_status; delete j.supersedes_folder_no; delete j.error_note;
+      await api(`vehicles?vin=eq.${encodeURIComponent(editing.vin)}`, { method: "PATCH", body: v, prefer: "return=minimal" });
+      await api(`jobs?folder_no=eq.${encodeURIComponent(editing.folder_no)}`, { method: "PATCH", body: j, prefer: "return=minimal" });
+      await api(`job_documents?on_conflict=folder_no,doc_type`, {
+        method: "POST", body: readDocs().map(d => ({ folder_no: editing.folder_no, ...d })),
+        prefer: "resolution=merge-duplicates,return=minimal"
+      });
+      if (v.mre_no && v.sev_no && !ref.links.some(l => l.mre_no === v.mre_no && l.sev_no === v.sev_no)) {
+        await api("mre_sev", { method: "POST", body: { mre_no: v.mre_no, sev_no: v.sev_no }, prefer: "resolution=ignore-duplicates,return=minimal" }).catch(() => {});
+        ref.links.push({ mre_no: v.mre_no, sev_no: v.sev_no });
+      }
+      toast(`Saved changes to ${editing.folder_no}`);
+      setMsg("form-msg", "Changes saved.", "good");
+    }
+  } catch (e) { setMsg("form-msg", friendly(e), "bad"); }
+  finally { btn.disabled = false; }
+}
+
+async function showCorrect() {
+  $("correct-plate").hidden = false;
+  $("c_note").value = "";
+  try {
+    const last = await api("jobs?select=folder_no&order=folder_no.desc&limit=1");
+    $("c_folder").value = nextFolder(last[0] && last[0].folder_no);
+  } catch (e) {}
+  $("correct-plate").scrollIntoView({ behavior: "smooth", block: "center" });
+  $("c_note").focus({ preventScroll: true });
+}
+
+async function saveCorrection() {
+  const note = $("c_note").value.trim(), folder = $("c_folder").value.trim().toUpperCase();
+  if (!note || !folder) return setMsg("form-msg", "Describe what was wrong and enter the new folder number.", "bad");
+  const problem = validate();
+  if (problem) return setMsg("form-msg", problem, "bad");
+  const btn = $("btn-correct"); btn.disabled = true;
+  setMsg("form-msg", "Saving correction…");
+  try {
+    const job = readJob(); job.folder_no = folder; job.vin = editing.vin;
+    const veh = readVehicle(); veh.vin = editing.vin;
+    const newFolder = await rpc("correct_rav_job", {
+      p_old_folder: editing.folder_no, p_error_note: note, p_vehicle: veh, p_job: job, p_docs: readDocs()
+    });
+    toast(`${editing.folder_no} marked errored. Correction saved as ${newFolder}.`);
+    await openJob(newFolder);
+  } catch (e) { setMsg("form-msg", friendly(e), "bad"); }
+  finally { btn.disabled = false; }
+}
+
+/* ===================== Jobs list ===================== */
+let listTimer;
+async function loadJobs() {
+  const body = $("jobs-body");
+  const q = $("q").value.trim().toUpperCase().replace(/[,()*]/g, "");
+  const cust = $("q_customer").value;
+  let path = "jobs?select=folder_no,vin,request_received,rav_entered,rav_status,completed,customers(name),vehicles(build_date,model_reports(make,model))&order=folder_no.desc&limit=101";
+  if (!$("q_errored").checked) path += "&rav_status=eq.valid";
+  if (cust) path += "&customer_id=eq." + encodeURIComponent(cust);
+  if (q) path += `&or=(folder_no.ilike.*${encodeURIComponent(q)}*,vin.ilike.*${encodeURIComponent(q)}*)`;
+  try {
+    const rows = await api(path);
+    $("jobs-more").textContent = rows.length > 100 ? "Showing the newest 100. Search to find older folders." : "";
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="8" class="empty">${q || cust ? "No jobs match that search." : "No jobs yet. Use New job to add the first one."}</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.slice(0, 100).map(r => {
+      const v = r.vehicles || {}, m = v.model_reports || {};
+      const status = r.rav_status === "errored" ? `<span class="pill err">Errored</span>`
+        : r.completed ? `<span class="pill done">Complete</span>` : `<span class="pill valid">In progress</span>`;
+      return `<tr data-open="${esc(r.folder_no)}" tabindex="0">
+        <td class="mono">${esc(r.folder_no)}</td>
+        <td class="mono">${esc(r.vin)}</td>
+        <td>${esc(clean([m.make, m.model].filter(Boolean).join(" ")) || "—")}</td>
+        <td class="num">${esc(fmtMonth(v.build_date) || "—")}</td>
+        <td>${esc(clean(r.customers && r.customers.name) || "—")}</td>
+        <td class="num">${esc(fmtDate(r.request_received))}</td>
+        <td class="num">${esc(fmtDate(r.rav_entered))}</td>
+        <td>${status}</td></tr>`;
+    }).join("");
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="8" class="empty">${esc(friendly(e))}</td></tr>`;
+  }
+}
+
+/* ===================== Lists ===================== */
+const LISTS = {
+  customers: {
+    label: "Customers", table: "customers", key: "customer_id",
+    fields: [["name", "Customer name", "text", true], ["raw_number", "Usual workshop (CMPL RAW)", "workshop"]],
+    cols: [["name", "Customer"], ["raw_number", "Workshop", "mono"]],
+    rows: () => ref.customers,
+  },
+  workshops: {
+    label: "Workshops", table: "workshops", key: "raw_number",
+    fields: [["raw_number", "RAW number", "text", true, "RAW-000116"], ["name", "Workshop name", "text", true]],
+    cols: [["raw_number", "RAW number", "mono"], ["name", "Name"]],
+    rows: () => ref.workshops,
+  },
+  mres: {
+    label: "MREs", table: "model_reports", key: "mre_no",
+    fields: [["mre_no", "MRE No", "text", true, "MRE-000247"], ["make", "Make", "text", true], ["model", "Model", "text", true],
+             ["build_from", "Build from", "month"], ["build_to", "Build to (blank = no end)", "month"]],
+    cols: [["mre_no", "MRE", "mono"], ["make", "Make"], ["model", "Model"], ["_range", "Build range"], ["_sevs", "SEVs used with it", "mono"]],
+    rows: () => ref.mres.map(m => ({ ...m, _range: rangeText(m.build_from, m.build_to),
+      _sevs: ref.links.filter(l => l.mre_no === m.mre_no).map(l => l.sev_no).join(", ") || "—" })),
+  },
+  sevs: {
+    label: "SEVs", table: "sev_entries", key: "sev_no",
+    fields: [["sev_no", "SEV No", "text", true, "SEV-000664"], ["build_from", "Build from", "month"], ["build_to", "Build to (blank = no end)", "month"]],
+    cols: [["sev_no", "SEV", "mono"], ["_range", "Build range"]],
+    rows: () => ref.sevs.map(s => ({ ...s, _range: rangeText(s.build_from, s.build_to) })),
+  },
+  authors: {
+    label: "Report authors", table: "report_authors", key: "author_id",
+    fields: [["name", "Author name", "text", true]],
+    cols: [["name", "Author"]],
+    rows: () => ref.authors,
+  },
+  submitters: {
+    label: "RAV submitters", table: "rav_submitters", key: "submitter_id",
+    fields: [["submitter_id", "Submitter ID", "text", true, "RS0002465"], ["authorised_by_no", "Authorised by number", "text", true, "RAV001897"],
+             ["authorised_entity", "Authorised entity", "text", true, "SYDNEY VEHICLE COMPLIANCE PTY LTD"]],
+    cols: [["submitter_id", "Submitter", "mono"], ["authorised_by_no", "Authorised by", "mono"], ["authorised_entity", "Entity"]],
+    rows: () => ref.submitters,
+  },
+};
+let currentList = "customers";
+let returnToForm = false;
+
+function renderListsNav() {
+  $("lists-nav").innerHTML = Object.entries(LISTS).map(([k, l]) =>
+    `<button type="button" data-list="${k}" aria-pressed="${k === currentList}">${esc(l.label)}</button>`).join("");
+}
+function renderList() {
+  renderListsNav();
+  const L = LISTS[currentList];
+  $("ref-form").innerHTML = L.fields.map(([name, label, type, req, ph]) => {
+    const id = `r_${currentList}_${name}`;
+    let input;
+    if (type === "workshop") input = `<select id="${id}" class="mono">${options(ref.workshops, "raw_number", w => `${w.raw_number} · ${w.name}`, "None")}</select>`;
+    else input = `<input id="${id}" type="${type === "month" ? "month" : "text"}" ${/_no$|_id$|raw_number/.test(name) ? 'class="mono"' : ""} placeholder="${esc(ph || "")}" autocomplete="off">`;
+    return `<label class="f"><span>${esc(label)}${req ? " <em>*</em>" : ""}</span>${input}</label>`;
+  }).join("") + `<button class="btn primary" type="submit">Add ${esc(L.label.replace(/s$/, "").toLowerCase())}</button>`;
+
+  $("ref-head").innerHTML = `<tr>${L.cols.map(c => `<th>${esc(c[1])}</th>`).join("")}</tr>`;
+  const rows = L.rows();
+  $("ref-body").innerHTML = rows.length
+    ? rows.map(r => `<tr style="cursor:default">${L.cols.map(([k, , cls]) => `<td class="${cls || ""}">${esc(clean(String(r[k] ?? "—")))}</td>`).join("")}</tr>`).join("")
+    : `<tr><td colspan="${L.cols.length}" class="empty">Nothing here yet. Add the first one above.</td></tr>`;
+}
+
+async function addRef(ev) {
+  ev.preventDefault();
+  const L = LISTS[currentList], row = {}, missing = [];
+  for (const [name, label, type, req] of L.fields) {
+    let v = $(`r_${currentList}_${name}`).value.trim();
+    if (type === "month" && v) v += "-01";
+    if (/_no$|_id$|raw_number/.test(name)) v = v.toUpperCase();
+    if (req && !v) missing.push(label.toLowerCase());
+    row[name] = v || null;
+  }
+  if (missing.length) return setMsg("ref-msg", "Fill in " + missing.join(", ") + ".", "bad");
+  try {
+    await api(L.table, { method: "POST", body: row, prefer: "return=minimal" });
+    await loadRefs();
+    renderList();
+    setMsg("ref-msg", "Added.", "good");
+    toast(`Added to ${L.label}`);
+    if (returnToForm) { returnToForm = false; history.back(); }
+  } catch (e) { setMsg("ref-msg", friendly(e), "bad"); }
+}
+
+/* ===================== Views & routing ===================== */
+function showView(name) {
+  ["form", "jobs", "lists"].forEach(v => $("view-" + v).hidden = v !== name);
+  $("nav-new").toggleAttribute("aria-current", false);
+  $("nav-jobs").toggleAttribute("aria-current", false);
+  $("nav-lists").toggleAttribute("aria-current", false);
+  const nav = name === "form" ? (mode === "new" ? "nav-new" : "nav-jobs") : "nav-" + name;
+  $(nav).setAttribute("aria-current", "page");
+}
+function route() {
+  const h = location.hash.replace("#", "") || "new";
+  if (h === "jobs") { showView("jobs"); loadJobs(); }
+  else if (h === "lists") { showView("lists"); renderList(); setMsg("ref-msg", ""); }
+  else if (h === "edit") { showView("form"); }
+  else { if (mode !== "new") prepareNew(); showView("form"); }
+}
+
+/* ===================== Wire up ===================== */
+document.addEventListener("click", (e) => {
+  const open = e.target.closest("[data-open]");
+  if (open) { e.preventDefault(); openJob(open.dataset.open); return; }
+  const goto = e.target.closest("[data-goto-list]");
+  if (goto) { currentList = goto.dataset.gotoList; returnToForm = true; location.hash = "#lists"; return; }
+  const lb = e.target.closest("[data-list]");
+  if (lb) { currentList = lb.dataset.list; renderList(); setMsg("ref-msg", ""); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.matches("tr[data-open]")) openJob(e.target.dataset.open);
+});
+$("job-form").addEventListener("submit", saveJob);
+$("f_vin").addEventListener("input", onVinInput);
+$("f_mre").addEventListener("change", () => { fillSevSelect(); checkMre(); });
+$("f_sev").addEventListener("change", checkSev);
+$("f_build").addEventListener("change", checkMre);
+$("f_customer").addEventListener("change", onCustomer);
+["f_cmpl_raw", "f_holder"].forEach(id => $(id).addEventListener("change", () => rawAuto = false));
+["f_recall","f_verified","f_submitted","f_rav_entered","f_paid"].forEach(id => $(id).addEventListener("change", checkDates));
+$("btn-clear").addEventListener("click", () => prepareNew());
+$("btn-new-blank").addEventListener("click", () => { location.hash = "#new"; prepareNew(); });
+$("btn-show-correct").addEventListener("click", showCorrect);
+$("btn-correct").addEventListener("click", saveCorrection);
+$("btn-correct-cancel").addEventListener("click", () => $("correct-plate").hidden = true);
+$("q").addEventListener("input", () => { clearTimeout(listTimer); listTimer = setTimeout(loadJobs, 300); });
+$("q_customer").addEventListener("change", loadJobs);
+$("q_errored").addEventListener("change", loadJobs);
+$("ref-form").addEventListener("submit", addRef);
+window.addEventListener("hashchange", route);
+
+(async function start() {
+  buildChecklist();
+  const conn = $("conn"), text = $("conn-text"), banner = $("setup-banner");
+  try {
+    await loadRefs();
+    conn.className = "conn ok"; text.textContent = "Connected to Supabase";
+    const empty = !ref.workshops.length && !ref.mres.length && !ref.customers.length;
+    if (empty) {
+      banner.className = "banner warn";
+      banner.innerHTML = `<b>Your lists are empty.</b>Either no data has been loaded yet, or Supabase is hiding it because the access policies aren't set.
+        If you haven't yet, run <code>avv_supabase_setup.sql</code> in the Supabase SQL editor. Then add workshops, customers, MREs and SEVs under Lists.`;
+      banner.hidden = false;
+    }
+  } catch (e) {
+    conn.className = "conn bad"; text.textContent = "Not connected";
+    banner.className = "banner bad";
+    banner.innerHTML = `<b>Couldn't load data from Supabase.</b>${esc(friendly(e))}`;
+    banner.hidden = false;
+  }
+  if (!location.hash) location.hash = "#new";
+  await prepareNew();
+  route();
+})();
+</script>
+</body>
+</html>
