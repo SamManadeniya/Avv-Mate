@@ -27,7 +27,8 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
         (r.sev_no && r.sev_no.toLowerCase().includes(q)) ||
         r.make.toLowerCase().includes(q) ||
         r.model.toLowerCase().includes(q) ||
-        (r.vcc && r.vcc.toLowerCase().includes(q))
+        (r.vcc && r.vcc.toLowerCase().includes(q)) ||
+        (r.author && r.author.toLowerCase().includes(q))
       );
     });
   }, [modelReports, searchTerm]);
@@ -44,6 +45,7 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
       'Tare (kg)': r.tare_kg || '',
       'Power (kW)': r.power_kw || '',
       'Seats': r.seats || '',
+      'Author (Supplier)': r.author || '',
     }));
     exportService.exportToCsv('model_reports', data);
   };
@@ -115,13 +117,14 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Tare</th>
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Power (kW)</th>
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Seats</th>
+              <th className="py-2.5 px-4 font-bold bg-slate-100">Author (Supplier)</th>
               <th className="py-2.5 px-4 font-bold text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {filteredReports.length === 0 ? (
               <tr>
-                <td colSpan={11} className="py-12 text-center text-slate-400">
+                <td colSpan={12} className="py-12 text-center text-slate-400">
                   <FileText className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                   <p className="font-semibold text-sm">No model reports found</p>
                   <p className="text-xs mt-1">Click "Add Model Report" to add an approved MRE.</p>
@@ -163,6 +166,9 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
                   </td>
                   <td className="py-3 px-3 font-mono text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
                     {report.seats || '—'}
+                  </td>
+                  <td className="py-3 px-4 font-medium text-slate-800 whitespace-nowrap">
+                    {report.author || '—'}
                   </td>
                   <td className="py-3 px-4 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">

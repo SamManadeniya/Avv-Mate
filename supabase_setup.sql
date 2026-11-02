@@ -32,9 +32,13 @@ CREATE TABLE IF NOT EXISTS public.model_reports (
     tare_kg INTEGER,
     power_kw INTEGER,
     seats INTEGER,
+    author VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Ensure author column exists if table was already created
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS author VARCHAR(255);
 
 -- Table 3: Vehicles Master Registry
 CREATE TABLE IF NOT EXISTS public.vehicles (

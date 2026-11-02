@@ -41,6 +41,7 @@ export interface ModelReport {
   tare_kg?: number | null;
   power_kw?: number | null;
   seats?: number | null;
+  author?: string | null; // Author / Supplier
   created_at?: string;
   updated_at?: string;
 }

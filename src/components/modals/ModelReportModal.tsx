@@ -28,6 +28,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
   const [tareKg, setTareKg] = useState<number | ''>('');
   const [powerKw, setPowerKw] = useState<number | ''>('');
   const [seats, setSeats] = useState<number | ''>('');
+  const [author, setAuthor] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -47,6 +48,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
       setTareKg(reportToEdit.tare_kg ?? '');
       setPowerKw(reportToEdit.power_kw ?? '');
       setSeats(reportToEdit.seats ?? '');
+      setAuthor(reportToEdit.author || '');
     } else {
       setMreNo('');
       setMake('');
@@ -60,6 +62,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
       setTareKg('');
       setPowerKw('');
       setSeats('');
+      setAuthor('');
     }
     setErrorMessage('');
   }, [isOpen, reportToEdit]);
@@ -92,6 +95,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
           tare_kg: tareKg === '' ? null : Number(tareKg),
           power_kw: powerKw === '' ? null : Number(powerKw),
           seats: seats === '' ? null : Number(seats),
+          author: author.trim() || null,
         });
       } else {
         await modelReportService.create({
@@ -107,6 +111,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
           tare_kg: tareKg === '' ? null : Number(tareKg),
           power_kw: powerKw === '' ? null : Number(powerKw),
           seats: seats === '' ? null : Number(seats),
+          author: author.trim() || null,
         });
       }
 
@@ -218,21 +223,95 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Vehicle Category Code (VCC)
+                Author (Supplier / Report Owner)
               </label>
-              <select
-                value={vcc}
-                onChange={e => setVcc(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-sky-500"
-              >
-                <option value="">Select VCC...</option>
-                <option value="MA">MA • Passenger Car</option>
-                <option value="MB">MB • Forward-Control Passenger</option>
-                <option value="MC">MC • Off-Road Passenger (SUV)</option>
-                <option value="NA">NA • Light Goods (&le; 3.5t)</option>
-                <option value="NB1">NB1 • Medium Goods (3.5t - 4.5t)</option>
-                <option value="NB2">NB2 • Medium Goods (4.5t - 12t)</option>
-              </select>
+              <input
+                type="text"
+                value={author}
+                onChange={e => setAuthor(e.target.value)}
+                placeholder="e.g. CPT, J-Spec, AutoSearch..."
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-semibold focus:ring-2 focus:ring-sky-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Vehicle Category Code (VCC)
+            </label>
+            <select
+              value={vcc}
+              onChange={e => setVcc(e.target.value)}
+              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="">Select VCC...</option>
+              <option value="MA">MA • Passenger Car</option>
+              <option value="MB">MB • Forward-Control Passenger</option>
+              <option value="MC">MC • Off-Road Passenger (SUV)</option>
+              <option value="NA">NA • Light Goods (&le; 3.5t)</option>
+              <option value="NB1">NB1 • Medium Goods (3.5t - 4.5t)</option>
+              <option value="NB2">NB2 • Medium Goods (4.5t - 12t)</option>
+            </select>
+          </div>
+
+          {/* Date Ranges (MRE & SEV) */}
+          <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-display">
+              Build Date Ranges (MRE & SEV Approvals)
+            </h4>
+
+            {/* MRE Date Range */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Build Date Range (MRE Approval)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] text-slate-500 block mb-0.5">From Date</span>
+                  <input
+                    type="date"
+                    value={buildFrom}
+                    onChange={e => setBuildFrom(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-mono focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 block mb-0.5">To Date (Leave blank if open)</span>
+                  <input
+                    type="date"
+                    value={buildTo}
+                    onChange={e => setBuildTo(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-mono focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* SEV Date Range */}
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                Build Date Range (SEV Approval)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] text-slate-500 block mb-0.5">SEV From Date</span>
+                  <input
+                    type="date"
+                    value={sevBuildFrom}
+                    onChange={e => setSevBuildFrom(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-mono focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 block mb-0.5">SEV To Date (Leave blank if open)</span>
+                  <input
+                    type="date"
+                    value={sevBuildTo}
+                    onChange={e => setSevBuildTo(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-mono focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 

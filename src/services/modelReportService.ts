@@ -39,6 +39,7 @@ export const modelReportService = {
         tare_kg: report.tare_kg ? Number(report.tare_kg) : null,
         power_kw: report.power_kw ? Number(report.power_kw) : null,
         seats: report.seats ? Number(report.seats) : null,
+        author: report.author?.trim() || null,
       }])
       .select()
       .single();
@@ -62,6 +63,7 @@ export const modelReportService = {
         tare_kg: updates.tare_kg !== undefined ? (updates.tare_kg ? Number(updates.tare_kg) : null) : undefined,
         power_kw: updates.power_kw !== undefined ? (updates.power_kw ? Number(updates.power_kw) : null) : undefined,
         seats: updates.seats !== undefined ? (updates.seats ? Number(updates.seats) : null) : undefined,
+        author: updates.author !== undefined ? (updates.author?.trim() || null) : undefined,
       })
       .eq('mre_no', mreNo)
       .select()
