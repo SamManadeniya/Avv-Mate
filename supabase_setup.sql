@@ -37,7 +37,11 @@ CREATE TABLE IF NOT EXISTS public.model_reports (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Ensure author column exists if table was already created
+-- Ensure columns exist if table was already created earlier
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS build_from DATE;
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS build_to DATE;
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS sev_build_from DATE;
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS sev_build_to DATE;
 ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS author VARCHAR(255);
 
 -- Table 3: Vehicles Master Registry
