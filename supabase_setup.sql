@@ -1,12 +1,13 @@
 -- ==============================================================================
 -- AVV MATE DATABASE SETUP SCRIPT (SUPABASE / POSTGRESQL)
--- Production-grade schema with RLS, Storage Buckets, Views, Triggers & Seed Data
+-- 100% Re-runnable, Idempotent, Zero Warnings (No DROP keywords)
+-- Tables, Columns, Date Ranges, Author, Storage, RLS & Seed Data
 -- ==============================================================================
 
 -- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. CORE TABLES
+-- 2. CORE TABLES & COLUMNS
 
 -- Table 1: RAW Workshops (Registered Automotive Workshops)
 CREATE TABLE IF NOT EXISTS public.raw_workshops (
@@ -37,11 +38,17 @@ CREATE TABLE IF NOT EXISTS public.model_reports (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Ensure columns exist if table was already created earlier
+-- Ensure all Model Report columns exist if the table was created previously
 ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS build_from DATE;
 ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS build_to DATE;
 ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS sev_build_from DATE;
 ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS sev_build_to DATE;
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS make VARCHAR(100);
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS model VARCHAR(100);
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS vcc VARCHAR(10);
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS tare_kg INTEGER;
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS power_kw INTEGER;
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS seats INTEGER;
 ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS author VARCHAR(255);
 
 -- Table 3: Vehicles Master Registry
@@ -74,6 +81,13 @@ CREATE TABLE IF NOT EXISTS public.compliance_jobs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Ensure all Compliance Jobs columns exist if the table was created previously
+ALTER TABLE public.compliance_jobs ADD COLUMN IF NOT EXISTS videos_url TEXT;
+ALTER TABLE public.compliance_jobs ADD COLUMN IF NOT EXISTS avv_verification_date DATE;
+ALTER TABLE public.compliance_jobs ADD COLUMN IF NOT EXISTS rav_date_of_entry DATE;
+ALTER TABLE public.compliance_jobs ADD COLUMN IF NOT EXISTS error_note TEXT;
+ALTER TABLE public.compliance_jobs ADD COLUMN IF NOT EXISTS supersedes_folder_no VARCHAR(50);
+
 -- Table 5: Job Attachments (Progressive document uploads)
 CREATE TABLE IF NOT EXISTS public.job_attachments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -87,7 +101,7 @@ CREATE TABLE IF NOT EXISTS public.job_attachments (
     CONSTRAINT unique_job_doc UNIQUE(job_id, doc_type)
 );
 
--- 3. INDEXES FOR HIGH-THROUGHPUT QUERYING & SEARCH
+-- 3. INDEXES FOR PERFORMANCE & FAST LOOKUPS
 CREATE INDEX IF NOT EXISTS idx_vehicles_raw_id ON public.vehicles(raw_id);
 CREATE INDEX IF NOT EXISTS idx_vehicles_mre_no ON public.vehicles(mre_no);
 CREATE INDEX IF NOT EXISTS idx_compliance_jobs_vin ON public.compliance_jobs(vin);
@@ -96,7 +110,7 @@ CREATE INDEX IF NOT EXISTS idx_compliance_jobs_mre_no ON public.compliance_jobs(
 CREATE INDEX IF NOT EXISTS idx_compliance_jobs_status ON public.compliance_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_job_attachments_job_id ON public.job_attachments(job_id);
 
--- 4. AUTOMATIC UPDATED_AT TIMESTAMP TRIGGER
+-- 4. AUTOMATIC UPDATED_AT TRIGGER FUNCTION
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -105,19 +119,24 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trg_raw_workshops_updated_at ON public.raw_workshops;
-CREATE TRIGGER trg_raw_workshops_updated_at BEFORE UPDATE ON public.raw_workshops FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+-- Attach triggers safely without DROP statements
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_raw_workshops_updated_at') THEN
+        CREATE TRIGGER trg_raw_workshops_updated_at BEFORE UPDATE ON public.raw_workshops FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_model_reports_updated_at') THEN
+        CREATE TRIGGER trg_model_reports_updated_at BEFORE UPDATE ON public.model_reports FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_vehicles_updated_at') THEN
+        CREATE TRIGGER trg_vehicles_updated_at BEFORE UPDATE ON public.vehicles FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_compliance_jobs_updated_at') THEN
+        CREATE TRIGGER trg_compliance_jobs_updated_at BEFORE UPDATE ON public.compliance_jobs FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+    END IF;
+END $$;
 
-DROP TRIGGER IF EXISTS trg_model_reports_updated_at ON public.model_reports;
-CREATE TRIGGER trg_model_reports_updated_at BEFORE UPDATE ON public.model_reports FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
-DROP TRIGGER IF EXISTS trg_vehicles_updated_at ON public.vehicles;
-CREATE TRIGGER trg_vehicles_updated_at BEFORE UPDATE ON public.vehicles FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
-DROP TRIGGER IF EXISTS trg_compliance_jobs_updated_at ON public.compliance_jobs;
-CREATE TRIGGER trg_compliance_jobs_updated_at BEFORE UPDATE ON public.compliance_jobs FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
-
--- 5. AGGREGATION & REPORTING VIEWS
+-- 5. VIEWS FOR REPORTING & REALTIME METRICS
 
 -- Workshop summary view with live total vehicle count
 CREATE OR REPLACE VIEW public.v_raw_workshops_summary AS
@@ -133,7 +152,7 @@ FROM public.raw_workshops w
 LEFT JOIN public.vehicles v ON v.raw_id = w.raw_id
 GROUP BY w.raw_id, w.name, w.contact_email, w.contact_phone, w.created_at, w.updated_at;
 
--- Detailed compliance jobs view with vehicle specs, workshop info, and document completion metrics
+-- Detailed compliance jobs view with vehicle specs, author, and completeness
 CREATE OR REPLACE VIEW public.v_compliance_jobs_detailed AS
 SELECT 
     j.id AS job_id,
@@ -150,6 +169,7 @@ SELECT
     m.tare_kg,
     m.power_kw,
     m.seats,
+    m.author,
     j.request_received,
     j.videos_url,
     j.avv_verification_date,
@@ -178,45 +198,69 @@ ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.compliance_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.job_attachments ENABLE ROW LEVEL SECURITY;
 
--- Allow unrestricted anonymous & authenticated access for the AVV operational web service
-CREATE POLICY "Allow public read access raw_workshops" ON public.raw_workshops FOR SELECT USING (true);
-CREATE POLICY "Allow public write access raw_workshops" ON public.raw_workshops FOR ALL USING (true) WITH CHECK (true);
+DO $$
+BEGIN
+    -- raw_workshops policies
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public read access raw_workshops') THEN
+        CREATE POLICY "Allow public read access raw_workshops" ON public.raw_workshops FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public write access raw_workshops') THEN
+        CREATE POLICY "Allow public write access raw_workshops" ON public.raw_workshops FOR ALL USING (true) WITH CHECK (true);
+    END IF;
 
-CREATE POLICY "Allow public read access model_reports" ON public.model_reports FOR SELECT USING (true);
-CREATE POLICY "Allow public write access model_reports" ON public.model_reports FOR ALL USING (true) WITH CHECK (true);
+    -- model_reports policies
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public read access model_reports') THEN
+        CREATE POLICY "Allow public read access model_reports" ON public.model_reports FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public write access model_reports') THEN
+        CREATE POLICY "Allow public write access model_reports" ON public.model_reports FOR ALL USING (true) WITH CHECK (true);
+    END IF;
 
-CREATE POLICY "Allow public read access vehicles" ON public.vehicles FOR SELECT USING (true);
-CREATE POLICY "Allow public write access vehicles" ON public.vehicles FOR ALL USING (true) WITH CHECK (true);
+    -- vehicles policies
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public read access vehicles') THEN
+        CREATE POLICY "Allow public read access vehicles" ON public.vehicles FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public write access vehicles') THEN
+        CREATE POLICY "Allow public write access vehicles" ON public.vehicles FOR ALL USING (true) WITH CHECK (true);
+    END IF;
 
-CREATE POLICY "Allow public read access compliance_jobs" ON public.compliance_jobs FOR SELECT USING (true);
-CREATE POLICY "Allow public write access compliance_jobs" ON public.compliance_jobs FOR ALL USING (true) WITH CHECK (true);
+    -- compliance_jobs policies
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public read access compliance_jobs') THEN
+        CREATE POLICY "Allow public read access compliance_jobs" ON public.compliance_jobs FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public write access compliance_jobs') THEN
+        CREATE POLICY "Allow public write access compliance_jobs" ON public.compliance_jobs FOR ALL USING (true) WITH CHECK (true);
+    END IF;
 
-CREATE POLICY "Allow public read access job_attachments" ON public.job_attachments FOR SELECT USING (true);
-CREATE POLICY "Allow public write access job_attachments" ON public.job_attachments FOR ALL USING (true) WITH CHECK (true);
+    -- job_attachments policies
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public read access job_attachments') THEN
+        CREATE POLICY "Allow public read access job_attachments" ON public.job_attachments FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public write access job_attachments') THEN
+        CREATE POLICY "Allow public write access job_attachments" ON public.job_attachments FOR ALL USING (true) WITH CHECK (true);
+    END IF;
+END $$;
 
--- 7. SUPABASE STORAGE BUCKET SETUP
--- Creates the 'compliance-docs' bucket if it doesn't already exist
+-- 7. SUPABASE STORAGE BUCKET FOR COMPLIANCE DOCS
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('compliance-docs', 'compliance-docs', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Storage object policies for compliance-docs bucket
-CREATE POLICY "Allow public read compliance-docs" 
-ON storage.objects FOR SELECT 
-USING (bucket_id = 'compliance-docs');
-
-CREATE POLICY "Allow public upload compliance-docs" 
-ON storage.objects FOR INSERT 
-WITH CHECK (bucket_id = 'compliance-docs');
-
-CREATE POLICY "Allow public update compliance-docs" 
-ON storage.objects FOR UPDATE 
-USING (bucket_id = 'compliance-docs') 
-WITH CHECK (bucket_id = 'compliance-docs');
-
-CREATE POLICY "Allow public delete compliance-docs" 
-ON storage.objects FOR DELETE 
-USING (bucket_id = 'compliance-docs');
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public read compliance-docs') THEN
+        CREATE POLICY "Allow public read compliance-docs" ON storage.objects FOR SELECT USING (bucket_id = 'compliance-docs');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public upload compliance-docs') THEN
+        CREATE POLICY "Allow public upload compliance-docs" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'compliance-docs');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public update compliance-docs') THEN
+        CREATE POLICY "Allow public update compliance-docs" ON storage.objects FOR UPDATE USING (bucket_id = 'compliance-docs') WITH CHECK (bucket_id = 'compliance-docs');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public delete compliance-docs') THEN
+        CREATE POLICY "Allow public delete compliance-docs" ON storage.objects FOR DELETE USING (bucket_id = 'compliance-docs');
+    END IF;
+END $$;
 
 -- 8. INITIAL SEED DATA (FROM DASHBOARD SCREENSHOTS)
 
@@ -266,4 +310,3 @@ ON CONFLICT (mre_no) DO NOTHING;
 INSERT INTO public.vehicles (vin, build_date, via_no, raw_id, mre_no) VALUES
 ('6ZZLLA400K0042734', '07/2020', 'CRE-145420', 'RAW-000153', 'MRE-000694')
 ON CONFLICT (vin) DO NOTHING;
-
