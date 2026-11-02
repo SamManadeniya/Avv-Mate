@@ -105,17 +105,17 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden my-8 flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 overflow-hidden my-4 sm:my-8 flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-100 text-emerald-800 rounded-lg">
+            <div className="p-2 bg-emerald-100 text-emerald-800 rounded-lg shrink-0">
               <MessageSquare className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="font-display font-bold text-lg text-slate-900">
+                <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">
                   REQUEST MISSING COMPLIANCE DOCUMENTS
                 </h2>
                 <span className="font-mono text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
@@ -138,7 +138,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1">
           {/* Missing vs Received Status Pills */}
           <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200">
             <div className="flex items-center justify-between mb-2">
@@ -290,7 +290,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
         </div>
 
         {/* Modal Actions */}
-        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <button
             type="button"
             onClick={onClose}

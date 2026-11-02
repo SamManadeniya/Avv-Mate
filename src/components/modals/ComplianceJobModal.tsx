@@ -230,13 +230,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const currentMre = modelReports.find(m => m.mre_no === mreNo);
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-8 max-h-[92vh] flex flex-col">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden my-4 sm:my-8 max-h-[92vh] flex flex-col">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 shrink-0">
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-display font-bold text-xl text-slate-900">
+              <span className="font-display font-bold text-lg sm:text-xl text-slate-900">
                 {jobToEdit ? `EDIT COMPLIANCE JOB — ${jobToEdit.folder_no}` : 'NEW COMPLIANCE JOB ENTRY'}
               </span>
               <span className="font-mono text-xs px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-semibold">
@@ -256,7 +256,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         </div>
 
         {/* Modal Form Body */}
-        <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-6 flex-1">
+        <form onSubmit={handleSubmit} className="overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6 flex-1">
           {errorMessage && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
@@ -590,7 +590,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           </div>
 
           {/* Modal Actions */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 shrink-0">
             <button
               type="button"
               onClick={onClose}

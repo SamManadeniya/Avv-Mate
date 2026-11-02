@@ -53,10 +53,10 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
   return (
     <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
       {/* Header Toolbar */}
-      <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/60 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+      <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="font-display font-bold text-xl text-slate-900 tracking-tight">
+            <h1 className="font-display font-bold text-lg sm:text-xl text-slate-900 tracking-tight">
               MODEL REPORTS (MRE) DIRECTORY
             </h1>
             <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 font-mono font-semibold text-slate-700">
@@ -71,7 +71,7 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleExportCsv}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-md shadow-2xs transition"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-md shadow-2xs transition"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export CSV</span>
@@ -79,7 +79,7 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
 
           <button
             onClick={onNewReport}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 text-white text-xs font-semibold rounded-md shadow-2xs transition"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 text-white text-xs font-semibold rounded-md shadow-2xs transition"
           >
             <Plus className="w-4 h-4" />
             <span>Add Model Report</span>
@@ -88,8 +88,8 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
       </div>
 
       {/* Search Bar */}
-      <div className="p-3.5 border-b border-slate-200 bg-white">
-        <div className="relative max-w-md">
+      <div className="p-3 sm:p-3.5 border-b border-slate-200 bg-white">
+        <div className="relative w-full sm:max-w-md">
           <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
           <input
             type="text"
@@ -99,6 +99,12 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
             className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-md text-xs font-mono focus:bg-white focus:ring-2 focus:ring-sky-500 focus:outline-hidden"
           />
         </div>
+      </div>
+
+      {/* Mobile swipe helper */}
+      <div className="md:hidden px-4 py-1.5 bg-sky-50/70 border-b border-sky-100 text-[11px] text-sky-800 flex items-center justify-between font-medium">
+        <span>👉 Swipe table to view all 11 columns</span>
+        <span className="font-semibold text-sky-900 bg-sky-100 px-1.5 py-0.5 rounded text-[10px]">Actions pinned</span>
       </div>
 
       {/* Table matching Image 1 (Model Reports) */}
@@ -118,7 +124,7 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Power (kW)</th>
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Seats</th>
               <th className="py-2.5 px-4 font-bold bg-slate-100">Author (Supplier)</th>
-              <th className="py-2.5 px-4 font-bold text-right">Actions</th>
+              <th className="py-2.5 px-4 font-bold text-right sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -170,18 +176,21 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
                   <td className="py-3 px-4 font-medium text-slate-800 whitespace-nowrap">
                     {report.author || '—'}
                   </td>
-                  <td className="py-3 px-4 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                  <td 
+                    className="py-3 px-4 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-sky-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]" 
+                    onClick={e => e.stopPropagation()}
+                  >
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => onEditReport(report)}
-                        className="p-1.5 text-slate-400 hover:text-sky-700 hover:bg-sky-50 rounded transition"
+                        className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-100 rounded transition"
                         title="Edit Model Report"
                       >
                         <Edit3 className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => onDeleteReport(report)}
-                        className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded transition"
+                        className="p-1.5 text-slate-500 hover:text-red-700 hover:bg-red-100 rounded transition"
                         title="Delete Model Report"
                       >
                         <Trash2 className="w-4 h-4" />

@@ -242,7 +242,7 @@ export const App: React.FC = () => {
 
       {/* Database Setup Alert Banner if tables need migration */}
       {dbSetupNeeded && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 w-full">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-4 w-full">
           <div className="p-4 bg-amber-50 border border-amber-300 rounded-lg flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
               <Database className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
@@ -271,7 +271,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
+      <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 w-full">
         {/* Compliance Jobs Tab View */}
         {activeTab === 'jobs' && (
           <div>

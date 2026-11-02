@@ -128,16 +128,16 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden my-8">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden my-4 sm:my-8 max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-sky-100 text-sky-800 rounded-lg">
+            <div className="p-2 bg-sky-100 text-sky-800 rounded-lg shrink-0">
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="font-display font-bold text-lg text-slate-900">
+              <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">
                 {reportToEdit ? `EDIT MODEL REPORT — ${reportToEdit.mre_no}` : 'ADD MODEL REPORT (MRE)'}
               </h2>
               <p className="text-xs text-slate-500">
@@ -154,7 +154,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           {errorMessage && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
@@ -363,7 +363,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 shrink-0">
             <button
               type="button"
               onClick={onClose}

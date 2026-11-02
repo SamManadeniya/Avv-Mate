@@ -39,13 +39,13 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ jobs, on
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-sm mb-6 overflow-hidden">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-5 py-3.5 bg-slate-50 border-b border-slate-200">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between px-4 sm:px-5 py-3 sm:py-3.5 bg-slate-50 border-b border-slate-200 gap-3">
         <div className="flex items-center gap-3">
-          <div className="p-1.5 bg-sky-100 text-sky-700 rounded-md">
+          <div className="p-1.5 bg-sky-100 text-sky-700 rounded-md shrink-0">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-slate-800 tracking-tight font-display">
+            <h2 className="text-sm sm:text-base font-bold text-slate-800 tracking-tight font-display">
               DOCUMENT READINESS & CLIENT NOTIFICATION CENTER
             </h2>
             <p className="text-xs text-slate-500">
@@ -54,37 +54,37 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ jobs, on
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 flex-wrap">
           {/* Quick Stats Badges */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => { setActiveTab('missing'); setIsExpanded(true); }}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold transition ${
                 activeTab === 'missing' && isExpanded
                   ? 'bg-amber-100 text-amber-800 ring-2 ring-amber-500/30'
                   : 'bg-slate-100 text-slate-600 hover:bg-amber-50'
               }`}
             >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
               <span>{pendingJobs.length} Incomplete</span>
             </button>
 
             <button
               onClick={() => { setActiveTab('complete'); setIsExpanded(true); }}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-xs font-semibold transition ${
                 activeTab === 'complete' && isExpanded
                   ? 'bg-emerald-100 text-emerald-800 ring-2 ring-emerald-500/30'
                   : 'bg-slate-100 text-slate-600 hover:bg-emerald-50'
               }`}
             >
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
               <span>{completedJobs.length} Ready for AVV</span>
             </button>
           </div>
 
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-200/60 transition"
+            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-200/60 transition ml-auto sm:ml-0"
             title={isExpanded ? 'Collapse' : 'Expand'}
           >
             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -97,7 +97,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ jobs, on
         <div className="p-4 bg-white">
           {activeTab === 'missing' ? (
             <div>
-              <div className="flex items-center justify-between mb-3 text-xs text-slate-500 font-medium">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3 text-xs text-slate-500 font-medium">
                 <span>
                   Showing <b>{pendingJobs.length}</b> vehicles requiring missing document uploads:
                 </span>
@@ -174,7 +174,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ jobs, on
             </div>
           ) : (
             <div>
-              <div className="flex items-center justify-between mb-3 text-xs text-slate-500 font-medium">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3 text-xs text-slate-500 font-medium">
                 <span>
                   Showing <b>{completedJobs.length}</b> vehicles with all 8/8 compliance documents verified:
                 </span>
