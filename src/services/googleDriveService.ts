@@ -165,10 +165,19 @@ class GoogleDriveService {
 
     return new Promise((resolve, reject) => {
       try {
+        let hasResponded = false;
+        const timer = setTimeout(() => {
+          if (!hasResponded) {
+            reject(new Error('Google authorization window was closed or blocked by Safari. Please check if your browser blocked popups.'));
+          }
+        }, 90000);
+
         const tokenClient = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
           scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
           callback: (response: any) => {
+            hasResponded = true;
+            clearTimeout(timer);
             if (response.error) {
               return reject(new Error(response.error_description || response.error));
             }
@@ -190,9 +199,14 @@ class GoogleDriveService {
               reject(new Error('No access token received from Google authentication.'));
             }
           },
+          error_callback: (error: any) => {
+            hasResponded = true;
+            clearTimeout(timer);
+            reject(new Error(error?.message || 'Google authentication encountered an error.'));
+          }
         });
 
-        tokenClient.requestAccessToken({ prompt: 'consent' });
+        tokenClient.requestAccessToken({ prompt: '' });
       } catch (err: any) {
         reject(new Error(err?.message || 'Failed to initialize Google authentication window.'));
       }
