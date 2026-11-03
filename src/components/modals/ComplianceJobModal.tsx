@@ -213,7 +213,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     setIsSyncingDrive(true);
     setDriveFeedback(null);
     try {
-      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
+      if (googleDriveService.isConfigured()) {
+        if (!googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
+          setDriveFeedback('Authorizing Google Drive...');
+          await googleDriveService.requestOAuthToken();
+          setIsDriveConfigured(googleDriveService.isConfigured());
+        }
+
         const hierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo, true);
         setDriveHierarchy(hierarchy);
         if (!videosUrl) {
@@ -243,7 +249,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           const syncResult = await googleDriveService.syncJobAttachmentsToDrive(folderNo, attList);
           setDriveFeedback(`✓ Verified Google Drive tree & organized ${syncResult.uploadedCount} files into DOCS, MEDIA/PHOTOS, and MEDIA/VIDEOS!`);
         } else {
-          setDriveFeedback(`✓ Folder tree verified on Google Drive: ${hierarchy.vehicleFolder.name} (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS, MEDIA/SUBMIT)`);
+          setDriveFeedback(`✓ Folder tree created on Google Drive: ${hierarchy.vehicleFolder.name} (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS, MEDIA/SUBMIT)`);
         }
       } else {
         const demo = googleDriveService.getDemoHierarchy(folderNo);
@@ -255,12 +261,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       }
     } catch (err: any) {
       console.error(err);
-      const demo = googleDriveService.getDemoHierarchy(folderNo);
-      setDriveHierarchy(demo);
-      if (!videosUrl) {
-        setVideosUrl(demo.videosFolder.webViewLink);
-      }
-      setDriveFeedback(`Google Drive sync pending: ${err.message || 'CORS origin propagating'}. You can still click "Open in Drive" to view your AVV Mate Drive.`);
+      setDriveFeedback(`Drive sync notice: ${err.message || 'Please connect Google Drive'}`);
     } finally {
       setIsSyncingDrive(false);
     }
@@ -413,6 +414,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
     try {
       let savedJob: ComplianceJob;
+      const uploadedAttachments: Record<string, { name: string; url: string; mimeType: string; docType: DocType }> = {};
 
       if (jobToEdit) {
         savedJob = await complianceJobService.update(jobToEdit.id, {
@@ -425,6 +427,18 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           status,
           error_note: errorNote || null,
         });
+
+        // Collect existing attachments
+        for (const [docKey, att] of Object.entries(attachments)) {
+          if (att?.file_url) {
+            uploadedAttachments[docKey] = {
+              name: att.file_name,
+              url: att.file_url,
+              mimeType: att.mime_type || 'application/pdf',
+              docType: docKey as DocType,
+            };
+          }
+        }
       } else {
         savedJob = await complianceJobService.create({
           folder_no: folderNo.toUpperCase().trim(),
@@ -439,10 +453,20 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           error_note: errorNote || null,
         });
 
-        // Upload any queued attachments from creation form
+        // Upload any queued attachments from creation form to Supabase Storage
         for (const [docKey, att] of Object.entries(attachments)) {
           if (att?._fileObject) {
-            await attachmentService.uploadFile(savedJob.id, docKey as DocType, att._fileObject);
+            try {
+              const uploadedAtt = await attachmentService.uploadFile(savedJob.id, docKey as DocType, att._fileObject);
+              uploadedAttachments[docKey] = {
+                name: uploadedAtt.file_name,
+                url: uploadedAtt.file_url,
+                mimeType: uploadedAtt.mime_type || att.mime_type || 'application/pdf',
+                docType: docKey as DocType,
+              };
+            } catch (upErr) {
+              console.warn(`Failed uploading ${docKey} to Supabase:`, upErr);
+            }
           }
         }
       }
@@ -450,25 +474,20 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       // Automatically create Drive folder tree and push attachments on save
       if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
         const cleanNo = folderNo.toUpperCase().trim();
-        const attList = (Object.keys(attachments) as DocType[])
-          .map(docType => {
-            const att = attachments[docType];
-            if (!att || (!att.file_url && !att._fileObject)) return null;
-            return {
-              name: att.file_name,
-              url: att.file_url,
-              mimeType: att.mime_type,
-              fileObject: att._fileObject,
-              docType,
-            };
-          })
-          .filter((item): item is NonNullable<typeof item> => item !== null);
+        const attList = Object.values(uploadedAttachments);
 
-        googleDriveService.ensureVehicleFolderHierarchy(cleanNo).then(async () => {
+        try {
+          // 1. Force refresh ensures that if the folder was deleted on Drive, it is freshly recreated
+          const hierarchy = await googleDriveService.ensureVehicleFolderHierarchy(cleanNo, true);
+          setDriveHierarchy(hierarchy);
+
+          // 2. Upload/sync all files into their dedicated folders
           if (attList.length > 0) {
             await googleDriveService.syncJobAttachmentsToDrive(cleanNo, attList);
           }
-        }).catch(e => console.warn('Drive auto-sync on save:', e));
+        } catch (driveErr) {
+          console.warn('Drive auto-sync on save error:', driveErr);
+        }
       }
 
       onSaved();
@@ -665,8 +684,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                       <span className="text-xs font-bold text-slate-800">
                         Google Drive Tree: <span className="font-mono text-sky-800">{folderNo || 'Vehicle Folder'}</span>
                       </span>
-                      <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
-                        {isDriveConfigured ? 'Drive Storage Active' : 'Drive Ready'}
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded ${
+                        isDriveConfigured && googleDriveService.isTokenValid()
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {isDriveConfigured && googleDriveService.isTokenValid() ? 'Drive Storage Active' : 'Drive Reconnect Needed'}
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-500 font-mono">
@@ -676,6 +699,28 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {!googleDriveService.isTokenValid() && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          setIsSyncingDrive(true);
+                          setDriveFeedback('Connecting Google account...');
+                          await googleDriveService.requestOAuthToken();
+                          setIsDriveConfigured(googleDriveService.isConfigured());
+                          await handleInitializeDrive();
+                        } catch (err: any) {
+                          setDriveFeedback(`Drive auth notice: ${err.message}`);
+                        } finally {
+                          setIsSyncingDrive(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded transition shadow-2xs"
+                      title="Authorize Google Drive on this browser"
+                    >
+                      <span>Connect Drive</span>
+                    </button>
+                  )}
                   {(() => {
                     const rawLink = driveHierarchy?.vehicleFolder.webViewLink;
                     const defaultRoot = googleDriveService.getConfig().rootFolderId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';

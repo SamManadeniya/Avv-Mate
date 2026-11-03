@@ -582,22 +582,8 @@ class GoogleDriveService {
     const cleanFolder = folderNo.toUpperCase().trim();
     if (!cleanFolder) throw new Error('Vehicle folder number (e.g. SVC1028) is required.');
 
-    // Check localStorage cache first
     const cacheKey = `${FOLDER_CACHE_KEY_PREFIX}${cleanFolder}`;
-    if (!forceRefresh) {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          // Only use cache if it is a REAL Google Drive folder (not a simulated dummy id with #)
-          if (parsed.vehicleFolder?.id && !parsed.vehicleFolder.id.startsWith('drive_') && !parsed.vehicleFolder.webViewLink?.includes('#')) {
-            return parsed;
-          } else {
-            localStorage.removeItem(cacheKey);
-          }
-        } catch (_) {}
-      }
-    } else {
+    if (forceRefresh) {
       try {
         localStorage.removeItem(cacheKey);
       } catch (_) {}
@@ -610,7 +596,7 @@ class GoogleDriveService {
     }
     const finalParent = rootParentId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
 
-    // 1. Try Serverless Proxy on Netlify (Immune to browser CORS and CSP)
+    // 1. Try Serverless Proxy on Netlify (Immune to browser CORS and CSP, always checks trashed=false live)
     try {
       const proxyRes = await fetch('/api/drive-sync', {
         method: 'POST',
@@ -634,6 +620,21 @@ class GoogleDriveService {
       }
     } catch (proxyErr) {
       console.warn('[GoogleDrive] Serverless proxy skipped, falling back to client:', proxyErr);
+    }
+
+    // 2. Check localStorage cache only if serverless proxy was unreachable (e.g. offline mode)
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed.vehicleFolder?.id && !parsed.vehicleFolder.id.startsWith('drive_') && !parsed.vehicleFolder.webViewLink?.includes('#')) {
+            return parsed;
+          } else {
+            localStorage.removeItem(cacheKey);
+          }
+        } catch (_) {}
+      }
     }
 
     try {
