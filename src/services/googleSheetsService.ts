@@ -96,39 +96,92 @@ class GoogleSheetsService {
         }),
       });
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || `Failed to create/locate Master Spreadsheet (${res.status})`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.spreadsheetId) {
+          const info: MasterSheetInfo = {
+            spreadsheetId: data.spreadsheetId,
+            title: data.title || 'AVV Mate Master Database',
+            webViewLink: data.webViewLink || `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`,
+            isNew: data.created,
+          };
+
+          this.sheetInfoCache = info;
+          localStorage.setItem(this.STORAGE_KEY_ID, info.spreadsheetId);
+          localStorage.setItem(this.STORAGE_KEY_URL, info.webViewLink);
+          return info;
+        }
       }
-
-      const data = await res.json();
-      if (!data.spreadsheetId) {
-        throw new Error('Server did not return a valid Master Spreadsheet ID.');
-      }
-
-      const info: MasterSheetInfo = {
-        spreadsheetId: data.spreadsheetId,
-        title: data.title || 'AVV Mate Master Database',
-        webViewLink: data.webViewLink || `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`,
-        isNew: data.created,
-      };
-
-      this.sheetInfoCache = info;
-      localStorage.setItem(this.STORAGE_KEY_ID, info.spreadsheetId);
-      localStorage.setItem(this.STORAGE_KEY_URL, info.webViewLink);
-
-      return info;
     } catch (err: any) {
-      console.warn('Master spreadsheet lookup failed:', err);
-      if (cachedId && cachedUrl && !cachedUrl.includes('demo_')) {
-        return {
-          spreadsheetId: cachedId,
-          title: 'AVV Mate Master Database',
-          webViewLink: cachedUrl,
-        };
-      }
-      throw err;
+      console.warn('Serverless master spreadsheet check failed, trying direct Drive API:', err);
     }
+
+    // Direct Google Drive API creation fallback (Immune to serverless cold starts or timeout)
+    try {
+      const searchQ = `name='AVV Mate Master Database' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,webViewLink)`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        if (searchData.files && searchData.files.length > 0) {
+          const existing = searchData.files[0];
+          const info: MasterSheetInfo = {
+            spreadsheetId: existing.id,
+            title: existing.name,
+            webViewLink: existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`,
+          };
+          this.sheetInfoCache = info;
+          localStorage.setItem(this.STORAGE_KEY_ID, info.spreadsheetId);
+          localStorage.setItem(this.STORAGE_KEY_URL, info.webViewLink);
+          return info;
+        }
+      }
+
+      // Create directly in AVV Mate Drive
+      const body: Record<string, any> = {
+        name: 'AVV Mate Master Database',
+        mimeType: 'application/vnd.google-apps.spreadsheet',
+      };
+      if (parentFolderId) {
+        body.parents = [parentFolderId];
+      }
+
+      const createRes = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (createRes.ok) {
+        const created = await createRes.json();
+        const info: MasterSheetInfo = {
+          spreadsheetId: created.id,
+          title: created.name,
+          webViewLink: created.webViewLink || `https://docs.google.com/spreadsheets/d/${created.id}/edit`,
+          isNew: true,
+        };
+        this.sheetInfoCache = info;
+        localStorage.setItem(this.STORAGE_KEY_ID, info.spreadsheetId);
+        localStorage.setItem(this.STORAGE_KEY_URL, info.webViewLink);
+        return info;
+      }
+    } catch (directErr) {
+      console.warn('Direct Drive API creation fallback failed:', directErr);
+    }
+
+    if (cachedId && cachedUrl && !cachedUrl.includes('demo_')) {
+      return {
+        spreadsheetId: cachedId,
+        title: 'AVV Mate Master Database',
+        webViewLink: cachedUrl,
+      };
+    }
+
+    throw new Error('Unable to create Master Spreadsheet in AVV Mate Drive. Please verify your Google account permissions.');
   }
 
   /**
