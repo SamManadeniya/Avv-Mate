@@ -672,96 +672,66 @@ export const handler = async (event: any) => {
       const parentFolderId = cleanDriveFolderId(payload.parentFolderId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5');
       const title = payload.spreadsheetTitle || 'AVV Mate Master Database';
 
-      // 1. Search if already exists in parent folder or drive
+      // 1. Search if already exists in parent folder or drive and verify it is a valid spreadsheet
       try {
         const searchQ = `name='${title.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
         const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,webViewLink,parents)`;
         const searchRes = await fetch(searchUrl, { headers: { Authorization: `Bearer ${token}` } });
         if (searchRes.ok) {
           const searchData = await searchRes.json();
-          const existing = (searchData.files || [])[0];
-          if (existing) {
-            if (parentFolderId && (!existing.parents || !existing.parents.includes(parentFolderId))) {
-              const moveUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}?addParents=${parentFolderId}&supportsAllDrives=true`;
-              await fetch(moveUrl, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+          for (const existing of (searchData.files || [])) {
+            // Verify with Sheets API that the file actually exists and is a valid spreadsheet
+            try {
+              const testUrl = `https://sheets.googleapis.com/v4/spreadsheets/${existing.id}?fields=spreadsheetId`;
+              const testRes = await fetch(testUrl, { headers: { Authorization: `Bearer ${token}` } });
+              if (testRes.ok) {
+                if (parentFolderId && (!existing.parents || !existing.parents.includes(parentFolderId))) {
+                  const moveUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}?addParents=${parentFolderId}&supportsAllDrives=true`;
+                  await fetch(moveUrl, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+                }
+                await ensureMasterSheetTabs(token, existing.id);
+                return {
+                  statusCode: 200,
+                  headers,
+                  body: JSON.stringify({
+                    success: true,
+                    created: false,
+                    spreadsheetId: existing.id,
+                    title: existing.name,
+                    webViewLink: existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`,
+                  }),
+                };
+              } else {
+                console.warn(`File ${existing.id} found by name is not a valid spreadsheet (HTTP ${testRes.status}), removing stub.`);
+                try {
+                  await fetch(`https://www.googleapis.com/drive/v3/files/${existing.id}?supportsAllDrives=true`, {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${token}` }
+                  });
+                } catch (_) {}
+              }
+            } catch (vErr) {
+              console.warn('Verification of existing spreadsheet skipped:', vErr);
             }
-            return {
-              statusCode: 200,
-              headers,
-              body: JSON.stringify({
-                success: true,
-                created: false,
-                spreadsheetId: existing.id,
-                title: existing.name,
-                webViewLink: existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`,
-              }),
-            };
           }
         }
       } catch (err) {
         console.warn('Error searching for master spreadsheet:', err);
       }
 
-      // 2. Primary: Create native Google Spreadsheet via Google Drive multipart upload
+      // 2. Create native Google Spreadsheet via Sheets API v4
       let spreadsheetId: string | null = null;
       let webViewLink: string | null = null;
 
+      const createUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
+      const sheetTabs = [
+        { properties: { title: 'Compliance_Jobs', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'Vehicles', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'RAW_Workshops', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'Model_Reports', gridProperties: { frozenRowCount: 1 } } },
+      ];
+
       try {
-        const boundary = '-------314159265358979323846';
-        const delimiter = `\r\n--${boundary}\r\n`;
-        const closeDelim = `\r\n--${boundary}--`;
-
-        const metadata: Record<string, any> = {
-          name: title,
-          mimeType: 'application/vnd.google-apps.spreadsheet',
-        };
-        if (parentFolderId) {
-          metadata.parents = [parentFolderId];
-        }
-
-        const initialCsv = 'Folder #,VIN,RAW ID,RAW Workshop Name,MRE #,Make,Model,Build Date,VIA #,Request Received,AVV Verification Date,RAV Date of Entry,Status,Docs Uploaded,Drive Folder Link,Inspection Videos,Error Note,Created At\r\n';
-
-        const multipartBody =
-          delimiter +
-          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-          JSON.stringify(metadata) +
-          delimiter +
-          'Content-Type: text/csv\r\n\r\n' +
-          initialCsv +
-          closeDelim;
-
-        const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink';
-        const uploadRes = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': `multipart/related; boundary=${boundary}`,
-          },
-          body: multipartBody,
-        });
-
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json();
-          spreadsheetId = uploadData.id;
-          webViewLink = uploadData.webViewLink || `https://docs.google.com/spreadsheets/d/${uploadData.id}/edit`;
-        } else {
-          const errText = await uploadRes.text();
-          console.warn('Multipart spreadsheet creation notice:', errText);
-        }
-      } catch (err) {
-        console.warn('Drive multipart creation failed, trying fallback:', err);
-      }
-
-      // Secondary fallback: Try creating via Sheets API
-      if (!spreadsheetId) {
-        const createUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
-        const sheetTabs = [
-          { properties: { title: 'Compliance_Jobs', gridProperties: { frozenRowCount: 1 } } },
-          { properties: { title: 'Vehicles', gridProperties: { frozenRowCount: 1 } } },
-          { properties: { title: 'RAW_Workshops', gridProperties: { frozenRowCount: 1 } } },
-          { properties: { title: 'Model_Reports', gridProperties: { frozenRowCount: 1 } } },
-        ];
-
         const createRes = await fetch(createUrl, {
           method: 'POST',
           headers: {
@@ -778,6 +748,70 @@ export const handler = async (event: any) => {
           const createData = await createRes.json();
           spreadsheetId = createData.spreadsheetId;
           webViewLink = createData.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+        } else {
+          const errText = await createRes.text();
+          if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {
+            return {
+              statusCode: 403,
+              headers,
+              body: JSON.stringify({
+                error: 'Google Sheets API is disabled for Google Cloud Project 43512054136. Please enable it in Google Cloud Console.',
+                enableApiUrl: 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136',
+                apiDisabled: true,
+              }),
+            };
+          }
+          console.warn('Sheets API creation notice:', errText);
+        }
+      } catch (err) {
+        console.warn('Sheets API direct creation failed, trying multipart:', err);
+      }
+
+      // Fallback: multipart upload
+      if (!spreadsheetId) {
+        try {
+          const boundary = '-------314159265358979323846';
+          const delimiter = `\r\n--${boundary}\r\n`;
+          const closeDelim = `\r\n--${boundary}--`;
+
+          const metadata: Record<string, any> = {
+            name: title,
+            mimeType: 'application/vnd.google-apps.spreadsheet',
+          };
+          if (parentFolderId) {
+            metadata.parents = [parentFolderId];
+          }
+
+          const initialCsv = 'Folder #,VIN,RAW ID,RAW Workshop Name,MRE #,Make,Model,Build Date,VIA #,Request Received,AVV Verification Date,RAV Date of Entry,Status,Docs Uploaded,Drive Folder Link,Inspection Videos,Error Note,Created At\r\n';
+
+          const multipartBody =
+            delimiter +
+            'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+            JSON.stringify(metadata) +
+            delimiter +
+            'Content-Type: text/csv\r\n\r\n' +
+            initialCsv +
+            closeDelim;
+
+          const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink';
+          const uploadRes = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': `multipart/related; boundary=${boundary}`,
+            },
+            body: multipartBody,
+          });
+
+          if (uploadRes.ok) {
+            const uploadData = await uploadRes.json();
+            spreadsheetId = uploadData.id;
+            webViewLink = uploadData.webViewLink || `https://docs.google.com/spreadsheets/d/${uploadData.id}/edit`;
+          }
+        } catch (err) {
+          console.warn('Drive multipart creation fallback failed:', err);
+        }
+      }
         } else {
           const errText = await createRes.text();
           if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {

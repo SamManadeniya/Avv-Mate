@@ -317,6 +317,12 @@ export const App: React.FC = () => {
 
   // Handlers for Google Sheets Master Database
   const handleMasterSheetOpen = async () => {
+    // Open a blank tab synchronously during user click to defeat Safari popup blockers
+    let newTab: Window | null = null;
+    try {
+      newTab = window.open('about:blank', '_blank');
+    } catch (_) {}
+
     try {
       setSheetsFeedback('Syncing & opening Master Database in Google Sheets...');
       if (!googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
@@ -337,11 +343,18 @@ export const App: React.FC = () => {
 
       const info = await googleSheetsService.getMasterSpreadsheet(true);
       setMasterSheetUrl(info.webViewLink);
-      window.open(info.webViewLink, '_blank');
+      if (newTab && !newTab.closed) {
+        newTab.location.href = info.webViewLink;
+      } else {
+        window.open(info.webViewLink, '_blank');
+      }
       setSheetsFeedback('✓ Master Database synced & opened in Google Sheets');
       setSheetsApiDisabledUrl(null);
       setTimeout(() => setSheetsFeedback(null), 5000);
     } catch (err: any) {
+      if (newTab && !newTab.closed) {
+        try { newTab.close(); } catch (_) {}
+      }
       console.error('Error opening master sheet:', err);
       const isApiDisabled =
         Boolean(err.enableApiUrl) ||

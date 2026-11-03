@@ -123,10 +123,10 @@ class GoogleSheetsService {
       if (err.enableApiUrl) {
         throw err;
       }
-      console.warn('Serverless master spreadsheet check failed, trying direct Drive API:', err);
+      console.warn('Serverless master spreadsheet check failed, trying direct Sheets API:', err);
     }
 
-    // Direct Google Drive API creation fallback (Immune to serverless cold starts or timeout)
+    // Direct Google Sheets API creation fallback
     try {
       const searchQ = `name='AVV Mate Master Database' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
       const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,webViewLink)`, {
@@ -134,44 +134,66 @@ class GoogleSheetsService {
       });
       if (searchRes.ok) {
         const searchData = await searchRes.json();
-        if (searchData.files && searchData.files.length > 0) {
-          const existing = searchData.files[0];
-          const info: MasterSheetInfo = {
-            spreadsheetId: existing.id,
-            title: existing.name,
-            webViewLink: existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`,
-          };
-          this.sheetInfoCache = info;
-          localStorage.setItem(this.STORAGE_KEY_ID, info.spreadsheetId);
-          localStorage.setItem(this.STORAGE_KEY_URL, info.webViewLink);
-          return info;
+        for (const existing of (searchData.files || [])) {
+          // Verify with Sheets API that the file actually exists
+          const testRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${existing.id}?fields=spreadsheetId`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(() => null);
+
+          if (testRes && testRes.ok) {
+            const info: MasterSheetInfo = {
+              spreadsheetId: existing.id,
+              title: existing.name,
+              webViewLink: existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`,
+            };
+            this.sheetInfoCache = info;
+            localStorage.setItem(this.STORAGE_KEY_ID, info.spreadsheetId);
+            localStorage.setItem(this.STORAGE_KEY_URL, info.webViewLink);
+            return info;
+          }
         }
       }
 
-      // Create directly in AVV Mate Drive
-      const body: Record<string, any> = {
-        name: 'AVV Mate Master Database',
-        mimeType: 'application/vnd.google-apps.spreadsheet',
-      };
-      if (parentFolderId) {
-        body.parents = [parentFolderId];
-      }
+      // Create directly using Google Sheets API v4
+      const sheetTabs = [
+        { properties: { title: 'Compliance_Jobs', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'Vehicles', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'RAW_Workshops', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'Model_Reports', gridProperties: { frozenRowCount: 1 } } },
+      ];
 
-      const createRes = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink', {
+      const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          properties: { title: 'AVV Mate Master Database' },
+          sheets: sheetTabs,
+        }),
       });
 
       if (createRes.ok) {
         const created = await createRes.json();
+        const spreadsheetId = created.spreadsheetId;
+        const webViewLink = created.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+
+        // Move into AVV Mate Drive folder
+        if (parentFolderId && spreadsheetId) {
+          try {
+            await fetch(`https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${parentFolderId}&supportsAllDrives=true`, {
+              method: 'PATCH',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({}),
+            });
+          } catch (_) {}
+        }
+
         const info: MasterSheetInfo = {
-          spreadsheetId: created.id,
-          title: created.name,
-          webViewLink: created.webViewLink || `https://docs.google.com/spreadsheets/d/${created.id}/edit`,
+          spreadsheetId,
+          title: created.properties?.title || 'AVV Mate Master Database',
+          webViewLink,
           isNew: true,
         };
         this.sheetInfoCache = info;
@@ -180,7 +202,7 @@ class GoogleSheetsService {
         return info;
       }
     } catch (directErr) {
-      console.warn('Direct Drive API creation fallback failed:', directErr);
+      console.warn('Direct Sheets API creation fallback failed:', directErr);
     }
 
     if (cachedId && cachedUrl && !cachedUrl.includes('demo_')) {
