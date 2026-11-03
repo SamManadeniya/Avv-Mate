@@ -173,7 +173,7 @@ class GoogleDriveService {
       throw new Error('Google OAuth Client ID is required.');
     }
     const redirectUri = typeof window !== 'undefined' ? window.location.origin : 'https://avvmate.netlify.app';
-    const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly');
+    const scope = encodeURIComponent('https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly');
     return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&prompt=consent`;
   }
 
@@ -258,7 +258,7 @@ class GoogleDriveService {
 
         const tokenClient = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
-          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
+          scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
           callback: (response: any) => {
             hasResponded = true;
             clearTimeout(timer);
