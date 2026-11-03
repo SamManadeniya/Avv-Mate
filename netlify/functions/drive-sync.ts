@@ -657,36 +657,54 @@ export const handler = async (event: any) => {
         console.warn('Error searching for master spreadsheet:', err);
       }
 
-      // 2. Primary: Create the spreadsheet directly via Google Drive API (requires ONLY Google Drive API)
+      // 2. Primary: Create native Google Spreadsheet via Google Drive multipart upload
       let spreadsheetId: string | null = null;
       let webViewLink: string | null = null;
 
       try {
-        const driveCreateUrl = 'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink';
-        const driveBody: Record<string, any> = {
+        const boundary = '-------314159265358979323846';
+        const delimiter = `\r\n--${boundary}\r\n`;
+        const closeDelim = `\r\n--${boundary}--`;
+
+        const metadata: Record<string, any> = {
           name: title,
           mimeType: 'application/vnd.google-apps.spreadsheet',
         };
         if (parentFolderId) {
-          driveBody.parents = [parentFolderId];
+          metadata.parents = [parentFolderId];
         }
 
-        const driveRes = await fetch(driveCreateUrl, {
+        const initialCsv = 'Folder #,VIN,RAW ID,RAW Workshop Name,MRE #,Make,Model,Build Date,VIA #,Request Received,AVV Verification Date,RAV Date of Entry,Status,Docs Uploaded,Drive Folder Link,Inspection Videos,Error Note,Created At\r\n';
+
+        const multipartBody =
+          delimiter +
+          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+          JSON.stringify(metadata) +
+          delimiter +
+          'Content-Type: text/csv\r\n\r\n' +
+          initialCsv +
+          closeDelim;
+
+        const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink';
+        const uploadRes = await fetch(uploadUrl, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
+            'Content-Type': `multipart/related; boundary=${boundary}`,
           },
-          body: JSON.stringify(driveBody),
+          body: multipartBody,
         });
 
-        if (driveRes.ok) {
-          const driveData = await driveRes.json();
-          spreadsheetId = driveData.id;
-          webViewLink = driveData.webViewLink || `https://docs.google.com/spreadsheets/d/${driveData.id}/edit`;
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          spreadsheetId = uploadData.id;
+          webViewLink = uploadData.webViewLink || `https://docs.google.com/spreadsheets/d/${uploadData.id}/edit`;
+        } else {
+          const errText = await uploadRes.text();
+          console.warn('Multipart spreadsheet creation notice:', errText);
         }
-      } catch (driveCreateErr) {
-        console.warn('Drive API spreadsheet creation failed, trying Sheets API fallback:', driveCreateErr);
+      } catch (err) {
+        console.warn('Drive multipart creation failed, trying fallback:', err);
       }
 
       // Secondary fallback: Try creating via Sheets API
