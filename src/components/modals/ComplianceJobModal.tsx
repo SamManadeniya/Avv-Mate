@@ -156,14 +156,22 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         const att = await attachmentService.uploadFile(jobToEdit.id, docType, file);
         setAttachments(prev => ({ ...prev, [docType]: att }));
 
-        // Automatic mirror to Google Drive DOCS folder
+        // Automatic mirror to Google Drive with proper folder segregation:
+        // - Photos -> MEDIA/PHOTOS
+        // - Videos -> MEDIA/VIDEOS
+        // - PDFs / Docs -> DOCS
         if (googleDriveService.isConfigured()) {
+          const isImg = docType === 'PHOTOS' || file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(file.name);
+          const isVid = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv)$/i.test(file.name);
+          const folderLabel = isImg ? 'MEDIA/PHOTOS' : isVid ? 'MEDIA/VIDEOS' : 'DOCS';
+
           googleDriveService.syncJobAttachmentsToDrive(folderNo, [{
             name: file.name,
             mimeType: file.type,
             fileObject: file,
+            docType,
           }]).then(() => {
-            setDriveFeedback(`✓ Auto-saved ${file.name} to Google Drive (${folderNo}/DOCS)`);
+            setDriveFeedback(`✓ Auto-saved ${file.name} to Google Drive (${folderNo}/${folderLabel})`);
           }).catch(e => console.warn('Background Drive upload:', e));
         }
       } else {
@@ -212,20 +220,28 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           setVideosUrl(hierarchy.videosFolder.webViewLink);
         }
 
-        // Auto-push all existing attachments (the 7 PDFs) into Google Drive DOCS folder
-        const attList = Object.values(attachments)
-          .filter((att): att is NonNullable<typeof att> => Boolean(att && (att.file_url || att._fileObject)))
-          .map(att => ({
-            name: att.file_name,
-            url: att.file_url,
-            mimeType: att.mime_type,
-            fileObject: att._fileObject,
-          }));
+        // Auto-push and organize all vehicle attachments into their dedicated Drive folders:
+        // - PDFs / reports -> DOCS
+        // - Inspection photos -> MEDIA/PHOTOS
+        // - Inspection videos -> MEDIA/VIDEOS
+        const attList = (Object.keys(attachments) as DocType[])
+          .map(docType => {
+            const att = attachments[docType];
+            if (!att || (!att.file_url && !att._fileObject)) return null;
+            return {
+              name: att.file_name,
+              url: att.file_url,
+              mimeType: att.mime_type,
+              fileObject: att._fileObject,
+              docType,
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null);
 
         if (attList.length > 0) {
-          setDriveFeedback(`Pushing ${attList.length} compliance documents to Google Drive (${folderNo}/DOCS)...`);
+          setDriveFeedback(`Organizing & syncing ${attList.length} files to Google Drive (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS)...`);
           const syncResult = await googleDriveService.syncJobAttachmentsToDrive(folderNo, attList);
-          setDriveFeedback(`✓ Verified Google Drive tree & uploaded ${syncResult.uploadedCount} compliance documents into ${folderNo}/DOCS!`);
+          setDriveFeedback(`✓ Verified Google Drive tree & organized ${syncResult.uploadedCount} files into DOCS, MEDIA/PHOTOS, and MEDIA/VIDEOS!`);
         } else {
           setDriveFeedback(`✓ Folder tree verified on Google Drive: ${hierarchy.vehicleFolder.name} (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS, MEDIA/SUBMIT)`);
         }
@@ -434,14 +450,19 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       // Automatically create Drive folder tree and push attachments on save
       if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
         const cleanNo = folderNo.toUpperCase().trim();
-        const attList = Object.values(attachments)
-          .filter((att): att is NonNullable<typeof att> => Boolean(att && (att.file_url || att._fileObject)))
-          .map(att => ({
-            name: att.file_name,
-            url: att.file_url,
-            mimeType: att.mime_type,
-            fileObject: att._fileObject,
-          }));
+        const attList = (Object.keys(attachments) as DocType[])
+          .map(docType => {
+            const att = attachments[docType];
+            if (!att || (!att.file_url && !att._fileObject)) return null;
+            return {
+              name: att.file_name,
+              url: att.file_url,
+              mimeType: att.mime_type,
+              fileObject: att._fileObject,
+              docType,
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null);
 
         googleDriveService.ensureVehicleFolderHierarchy(cleanNo).then(async () => {
           if (attList.length > 0) {

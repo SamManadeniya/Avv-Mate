@@ -4,13 +4,118 @@
  */
 
 interface RequestBody {
-  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls';
+  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders';
   folderNo?: string;
   parentFolderId?: string;
   folderId?: string;
-  files?: Array<{ name: string; url: string; mimeType?: string }>;
+  hierarchy?: {
+    docsFolder?: { id: string };
+    photosFolder?: { id: string };
+    videosFolder?: { id: string };
+    docsFolderId?: string;
+    photosFolderId?: string;
+    videosFolderId?: string;
+  };
+  files?: Array<{
+    name: string;
+    url: string;
+    mimeType?: string;
+    targetFolderId?: string;
+    category?: 'docs' | 'photos' | 'videos';
+    docType?: string;
+  }>;
   accessToken?: string;
 }
+
+const isImageFileServer = (name: string, mime?: string) => {
+  const m = (mime || '').toLowerCase();
+  const n = (name || '').toLowerCase();
+  return m.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|svg)$/i.test(n);
+};
+
+const isVideoFileServer = (name: string, mime?: string) => {
+  const m = (mime || '').toLowerCase();
+  const n = (name || '').toLowerCase();
+  return m.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm|wmv|m4v|3gp|flv)$/i.test(n);
+};
+
+const moveOrCleanMisplacedFileServer = async (
+  token: string,
+  fileId: string,
+  fileName: string,
+  fromFolderId: string,
+  toFolderId: string
+) => {
+  try {
+    // Check if a file with the same name already exists in destination
+    const checkQ = `'${toFolderId}' in parents and name='${fileName.replace(/'/g, "\\'")}' and trashed=false`;
+    const checkUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(checkQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name)`;
+    const checkRes = await fetch(checkUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (checkRes.ok) {
+      const checkData = await checkRes.json();
+      if (checkData.files && checkData.files.some((f: any) => f.id !== fileId)) {
+        // Already exists in target folder; remove old reference from source folder
+        const removeUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?removeParents=${fromFolderId}&supportsAllDrives=true`;
+        await fetch(removeUrl, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        return true;
+      }
+    }
+
+    // Move to destination
+    const moveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${toFolderId}&removeParents=${fromFolderId}&supportsAllDrives=true`;
+    const moveRes = await fetch(moveUrl, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+    return moveRes.ok;
+  } catch (e) {
+    console.warn(`[drive-sync] Failed to move/clean ${fileName}:`, e);
+    return false;
+  }
+};
+
+const organizeVehicleFoldersServer = async (
+  token: string,
+  docsFolderId: string,
+  photosFolderId: string,
+  videosFolderId: string
+) => {
+  const moved: Array<{ name: string; from: string; to: string }> = [];
+  try {
+    // 1. Inspect DOCS folder for misplaced photos or videos
+    const docsQ = `'${docsFolderId}' in parents and trashed=false`;
+    const docsUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(docsQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,mimeType)`;
+    const docsRes = await fetch(docsUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (docsRes.ok) {
+      const docsData = await docsRes.json();
+      const files = docsData.files || [];
+      for (const f of files) {
+        if (isImageFileServer(f.name, f.mimeType)) {
+          const ok = await moveOrCleanMisplacedFileServer(token, f.id, f.name, docsFolderId, photosFolderId);
+          if (ok) moved.push({ name: f.name, from: 'DOCS', to: 'MEDIA/PHOTOS' });
+        } else if (isVideoFileServer(f.name, f.mimeType)) {
+          const ok = await moveOrCleanMisplacedFileServer(token, f.id, f.name, docsFolderId, videosFolderId);
+          if (ok) moved.push({ name: f.name, from: 'DOCS', to: 'MEDIA/VIDEOS' });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[drive-sync] organizeVehicleFoldersServer error:', err);
+  }
+  return moved;
+};
 
 const uploadFileBufferServer = async (
   token: string,
@@ -238,6 +343,9 @@ export const handler = async (event: any) => {
         findOrCreateFolderServer(token, 'SUBMIT', mediaFolder.id),
       ]);
 
+      // 4. Auto-organize: relocate any misplaced photos or videos out of DOCS into MEDIA/PHOTOS and MEDIA/VIDEOS
+      const moved = await organizeVehicleFoldersServer(token, docsFolder.id, photosFolder.id, videosFolder.id);
+
       return {
         statusCode: 200,
         headers,
@@ -251,18 +359,45 @@ export const handler = async (event: any) => {
             videosFolder,
             submitFolder,
           },
+          moved,
         }),
       };
     }
 
-    if (payload.action === 'syncFilesFromUrls') {
-      const folderId = payload.folderId;
-      const files = payload.files || [];
-      if (!folderId || files.length === 0) {
+    if (payload.action === 'organizeVehicleFolders') {
+      const docsId = payload.hierarchy?.docsFolder?.id || payload.hierarchy?.docsFolderId || payload.folderId;
+      const photosId = payload.hierarchy?.photosFolder?.id || payload.hierarchy?.photosFolderId;
+      const videosId = payload.hierarchy?.videosFolder?.id || payload.hierarchy?.videosFolderId;
+
+      if (!docsId || !photosId || !videosId) {
         return {
           statusCode: 400,
           headers,
-          body: JSON.stringify({ error: 'Folder ID and files list required.' }),
+          body: JSON.stringify({ error: 'docsFolder, photosFolder, and videosFolder IDs are required.' }),
+        };
+      }
+
+      const moved = await organizeVehicleFoldersServer(token, docsId, photosId, videosId);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, moved, count: moved.length }),
+      };
+    }
+
+    if (payload.action === 'syncFilesFromUrls') {
+      const files = payload.files || [];
+      const defaultFolderId = payload.folderId || payload.hierarchy?.docsFolder?.id || payload.hierarchy?.docsFolderId;
+
+      const docsFolderId = payload.hierarchy?.docsFolder?.id || payload.hierarchy?.docsFolderId || defaultFolderId;
+      const photosFolderId = payload.hierarchy?.photosFolder?.id || payload.hierarchy?.photosFolderId;
+      const videosFolderId = payload.hierarchy?.videosFolder?.id || payload.hierarchy?.videosFolderId;
+
+      if (files.length === 0) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Files list is required.' }),
         };
       }
 
@@ -270,20 +405,43 @@ export const handler = async (event: any) => {
       for (const f of files) {
         try {
           if (!f.url) continue;
+
+          // Route to appropriate folder based on targetFolderId, category, docType, or file type
+          let targetId = f.targetFolderId;
+          if (!targetId) {
+            const isPhoto = f.category === 'photos' || f.docType === 'PHOTOS' || isImageFileServer(f.name, f.mimeType);
+            const isVideo = f.category === 'videos' || f.docType === 'VIDEOS' || isVideoFileServer(f.name, f.mimeType);
+
+            if (isPhoto && photosFolderId) {
+              targetId = photosFolderId;
+            } else if (isVideo && videosFolderId) {
+              targetId = videosFolderId;
+            } else {
+              targetId = docsFolderId;
+            }
+          }
+
+          if (!targetId) continue;
+
           const fileRes = await fetch(f.url);
           if (!fileRes.ok) continue;
           const bytes = await fileRes.arrayBuffer();
           const item = await uploadFileBufferServer(
             token,
-            folderId,
+            targetId,
             f.name,
-            f.mimeType || 'application/pdf',
+            f.mimeType || 'application/octet-stream',
             bytes
           );
-          uploaded.push(item);
+          uploaded.push({ ...item, targetFolderId: targetId });
         } catch (uploadErr: any) {
           console.error(`Failed uploading file ${f.name}:`, uploadErr);
         }
+      }
+
+      // Run auto-organize check after syncing
+      if (docsFolderId && photosFolderId && videosFolderId) {
+        await organizeVehicleFoldersServer(token, docsFolderId, photosFolderId, videosFolderId);
       }
 
       return {

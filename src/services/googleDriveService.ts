@@ -47,6 +47,44 @@ export interface DriveUploadedFile {
   webContentLink?: string;
 }
 
+export type MediaCategory = 'docs' | 'photos' | 'videos';
+
+/**
+ * Classifies a file into its appropriate vehicle folder:
+ * - 'photos' -> MEDIA/PHOTOS (batch photos, jpg, png, heic, PHOTOS slot)
+ * - 'videos' -> MEDIA/VIDEOS (mp4, mov, avi, inspection videos)
+ * - 'docs'   -> DOCS (compliance PDFs, certificates, declarations)
+ */
+export function classifyFileCategory(file: { name?: string; mimeType?: string; docType?: string; category?: MediaCategory }): MediaCategory {
+  if (file.category) return file.category;
+  const mime = (file.mimeType || '').toLowerCase();
+  const name = (file.name || '').toLowerCase();
+  const docType = (file.docType || '').toUpperCase();
+
+  // 1. Check for Videos
+  if (
+    docType === 'VIDEOS' ||
+    docType === 'VIDEO' ||
+    mime.startsWith('video/') ||
+    /\.(mp4|mov|avi|mkv|webm|wmv|m4v|3gp|flv)$/i.test(name)
+  ) {
+    return 'videos';
+  }
+
+  // 2. Check for Photos / Images
+  if (
+    docType === 'PHOTOS' ||
+    docType === 'PHOTO' ||
+    mime.startsWith('image/') ||
+    /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|svg)$/i.test(name)
+  ) {
+    return 'photos';
+  }
+
+  // 3. Default to Compliance DOCS (PDFs, reports, declarations)
+  return 'docs';
+}
+
 const STORAGE_KEY = 'avv_mate_gdrive_config';
 const FOLDER_CACHE_KEY_PREFIX = 'avv_mate_drive_hierarchy_';
 
@@ -628,6 +666,13 @@ class GoogleDriveService {
         localStorage.setItem(cacheKey, JSON.stringify(hierarchy));
       } catch (_) {}
 
+      // Auto-organize files: ensure any misplaced photos/videos in DOCS are moved to their correct folders
+      if (this.config.accessToken) {
+        this.organizeVehicleFolder(hierarchy).catch(err => {
+          console.warn('[GoogleDrive] Background auto-organize check:', err);
+        });
+      }
+
       return hierarchy;
     } catch (err: any) {
       if (err.message?.includes('401') || err.message?.includes('UNAUTHENTICATED') || err.message?.includes('invalid authentication credentials')) {
@@ -642,6 +687,114 @@ class GoogleDriveService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Moves a file between folders in Google Drive using PATCH addParents/removeParents
+   */
+  public async moveFile(fileId: string, fromFolderId: string, toFolderId: string): Promise<boolean> {
+    const token = this.config.accessToken;
+    if (!token) return false;
+
+    try {
+      // First check if destination already has a file with the same name to prevent duplicates
+      const fileMetaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true&fields=id,name`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      let fileName = '';
+      if (fileMetaRes.ok) {
+        const fileMeta = await fileMetaRes.json();
+        fileName = fileMeta.name;
+      }
+
+      if (fileName) {
+        const checkQ = `'${toFolderId}' in parents and name='${fileName.replace(/'/g, "\\'")}' and trashed=false`;
+        const checkUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(checkQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name)`;
+        const checkRes = await fetch(checkUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.files && checkData.files.some((f: any) => f.id !== fileId)) {
+            // Duplicate exists in target folder; just remove from old folder
+            const removeUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?removeParents=${fromFolderId}&supportsAllDrives=true`;
+            const remRes = await fetch(removeUrl, {
+              method: 'PATCH',
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            return remRes.ok;
+          }
+        }
+      }
+
+      const moveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${toFolderId}&removeParents=${fromFolderId}&supportsAllDrives=true`;
+      const res = await fetch(moveUrl, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('[GoogleDrive] moveFile error:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Organizes vehicle folder contents:
+   * - Scans DOCS: Moves photos/images into MEDIA/PHOTOS, and videos into MEDIA/VIDEOS.
+   * - Scans MEDIA root: Moves photos into PHOTOS, and videos into VIDEOS.
+   */
+  public async organizeVehicleFolder(hierarchy: VehicleDriveHierarchy): Promise<{ movedCount: number; moved: string[] }> {
+    const token = this.config.accessToken;
+    if (!token) return { movedCount: 0, moved: [] };
+
+    const docsFolderId = hierarchy.docsFolder?.id;
+    const photosFolderId = hierarchy.photosFolder?.id;
+    const videosFolderId = hierarchy.videosFolder?.id;
+    const moved: string[] = [];
+
+    // Skip if simulated demo folder IDs
+    if (!this.isValidDriveId(docsFolderId) || !this.isValidDriveId(photosFolderId) || !this.isValidDriveId(videosFolderId)) {
+      return { movedCount: 0, moved: [] };
+    }
+
+    try {
+      // 1. Inspect DOCS folder for misplaced photos or videos
+      const q = `'${docsFolderId}' in parents and trashed=false`;
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,mimeType)`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const files = data.files || [];
+        for (const file of files) {
+          const category = classifyFileCategory({ name: file.name, mimeType: file.mimeType });
+          if (category === 'photos') {
+            const ok = await this.moveFile(file.id, docsFolderId, photosFolderId);
+            if (ok) {
+              console.log(`[GoogleDrive] Moved photo "${file.name}" from DOCS to MEDIA/PHOTOS`);
+              moved.push(`${file.name} -> MEDIA/PHOTOS`);
+            }
+          } else if (category === 'videos') {
+            const ok = await this.moveFile(file.id, docsFolderId, videosFolderId);
+            if (ok) {
+              console.log(`[GoogleDrive] Moved video "${file.name}" from DOCS to MEDIA/VIDEOS`);
+              moved.push(`${file.name} -> MEDIA/VIDEOS`);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[GoogleDrive] organizeVehicleFolder error:', err);
+    }
+
+    return { movedCount: moved.length, moved };
   }
 
   /**
@@ -744,27 +897,50 @@ class GoogleDriveService {
   }
 
   /**
-   * Automatically synchronizes all job document attachments (PDFs) into the vehicle's DOCS folder on Google Drive
+   * Automatically synchronizes vehicle attachments into their correct Drive folders:
+   * - Documents (CRE, EC, CIN, WI, DC, VI, RAW_DECLA, PDFs) -> DOCS folder
+   * - Photos (PHOTOS slot, .jpg, .png, etc.) -> MEDIA/PHOTOS folder
+   * - Videos (Inspection videos, .mp4, .mov, etc.) -> MEDIA/VIDEOS folder
    */
   public async syncJobAttachmentsToDrive(
     folderNo: string,
-    attachments: Array<{ name: string; url?: string; mimeType?: string; fileObject?: File }>,
+    attachments: Array<{
+      name: string;
+      url?: string;
+      mimeType?: string;
+      fileObject?: File;
+      docType?: string;
+      category?: MediaCategory;
+    }>,
     onProgress?: (current: string, completed: number, total: number) => void
   ): Promise<{ uploadedCount: number; errors: string[] }> {
     const hierarchy = await this.ensureVehicleFolderHierarchy(folderNo);
-    const docsFolderId = hierarchy.docsFolder.id;
     const token = this.config.accessToken;
     const errors: string[] = [];
     let uploadedCount = 0;
 
+    const getTargetFolderId = (item: { name: string; mimeType?: string; docType?: string; category?: MediaCategory }) => {
+      const category = item.category || classifyFileCategory(item);
+      if (category === 'photos') return hierarchy.photosFolder.id;
+      if (category === 'videos') return hierarchy.videosFolder.id;
+      return hierarchy.docsFolder.id;
+    };
+
     // Filter out URL-based files and local files
     const urlFiles = attachments
       .filter(a => a.url && !a.fileObject)
-      .map(a => ({
-        name: a.name,
-        url: a.url!,
-        mimeType: a.mimeType,
-      }));
+      .map(a => {
+        const category = a.category || classifyFileCategory(a);
+        const targetFolderId = getTargetFolderId(a);
+        return {
+          name: a.name,
+          url: a.url!,
+          mimeType: a.mimeType,
+          category,
+          docType: a.docType,
+          targetFolderId,
+        };
+      });
 
     // 1. Try serverless bulk sync for existing remote files
     if (urlFiles.length > 0 && token) {
@@ -774,7 +950,11 @@ class GoogleDriveService {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'syncFilesFromUrls',
-            folderId: docsFolderId,
+            hierarchy: {
+              docsFolderId: hierarchy.docsFolder.id,
+              photosFolderId: hierarchy.photosFolder.id,
+              videosFolderId: hierarchy.videosFolder.id,
+            },
             files: urlFiles,
             accessToken: token,
           }),
@@ -796,13 +976,21 @@ class GoogleDriveService {
       const item = localFiles[i];
       if (item.fileObject) {
         onProgress?.(item.name, i + 1, localFiles.length);
+        const targetFolderId = getTargetFolderId(item);
         try {
-          await this.uploadFile(docsFolderId, item.fileObject);
+          await this.uploadFile(targetFolderId, item.fileObject);
           uploadedCount++;
         } catch (e: any) {
           errors.push(`${item.name}: ${e.message}`);
         }
       }
+    }
+
+    // 3. Run auto-organize check to relocate any previously misplaced images/videos
+    if (token) {
+      try {
+        await this.organizeVehicleFolder(hierarchy);
+      } catch (_) {}
     }
 
     return { uploadedCount, errors };
