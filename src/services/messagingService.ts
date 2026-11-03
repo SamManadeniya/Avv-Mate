@@ -49,6 +49,9 @@ export const messagingService = {
       ? receivedDocs.map(d => d.label).join(', ') 
       : 'None yet';
 
+    const countTextEmail = missingDocs.length === 1 ? '1 outstanding document' : `${missingDocs.length} outstanding documents`;
+    const countTextWA = missingDocs.length === 1 ? '1 missing document' : `${missingDocs.length} missing documents`;
+
     const emailBody = `Dear ${clientName},
 
 We are currently completing the Authorised Vehicle Verifier (AVV) compliance verification for your vehicle:
@@ -59,7 +62,7 @@ We are currently completing the Authorised Vehicle Verifier (AVV) compliance ver
   • Request Received: ${job.request_received || 'Recorded'}
   • VIA #: ${job.via_no || 'N/A'}
 
-To finalize AVV verification and submit the entry onto the national Register of Approved Vehicles (RAV), we still require the following ${missingDocs.length} outstanding document(s):
+To finalize AVV verification and submit the entry onto the national Register of Approved Vehicles (RAV), we still require the following ${countTextEmail}:
 
 ${missingListEmail}
 
@@ -85,7 +88,7 @@ We are processing AVV verification for your vehicle:
 📁 Folder: *${folder}*
 🔢 VIN: *${vin}*
 
-To finalize verification and complete RAV registration, please provide the following *${missingDocs.length} missing document(s)*:
+To finalize verification and complete RAV registration, please provide the following *${countTextWA}*:
 
 ${missingListWA}
 

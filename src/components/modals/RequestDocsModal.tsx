@@ -6,13 +6,16 @@ import {
   Check, 
   AlertCircle, 
   MessageSquare, 
-  ExternalLink,
-  Phone,
-  Layers,
-  Sparkles
+  ExternalLink, 
+  Phone, 
+  Layers, 
+  Sparkles,
+  RotateCcw,
+  Edit3
 } from 'lucide-react';
-import type { ComplianceJob, RawWorkshop } from '../../types';
+import type { ComplianceJob, RawWorkshop, DocType, JobAttachment } from '../../types';
 import { messagingService, type GeneratedTemplates } from '../../services/messagingService';
+import { attachmentService } from '../../services/attachmentService';
 
 interface RequestDocsModalProps {
   isOpen: boolean;
@@ -34,6 +37,12 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
   const [isSendingApi, setIsSendingApi] = useState(false);
   const [apiFeedback, setApiFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Editable custom messages
+  const [customWhatsAppMessage, setCustomWhatsAppMessage] = useState('');
+  const [customEmailSubject, setCustomEmailSubject] = useState('');
+  const [customEmailBody, setCustomEmailBody] = useState('');
+  const [isEdited, setIsEdited] = useState(false);
+
   const matchedWorkshop = workshops.find(
     w => w.raw_id === job?.raw_id || w.name === job?.raw_workshop_name
   );
@@ -43,19 +52,53 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
   useEffect(() => {
     if (!isOpen || !job) return;
 
-    const t = messagingService.generateMissingDocsTemplate(job, matchedWorkshop);
-    setTemplates(t);
+    let isMounted = true;
+
+    // Load live attachments directly from DB to guarantee 100% fresh detection
+    attachmentService.getByJobId(job.id).then((liveAttachments: Record<DocType, JobAttachment | null>) => {
+      if (!isMounted) return;
+      const jobWithLiveAtts = {
+        ...job,
+        attachments: liveAttachments
+      };
+      const t = messagingService.generateMissingDocsTemplate(jobWithLiveAtts, matchedWorkshop);
+      setTemplates(t);
+      setCustomWhatsAppMessage(t.whatsappMessage);
+      setCustomEmailSubject(t.subject);
+      setCustomEmailBody(t.emailBody);
+      setIsEdited(false);
+    }).catch((err: unknown) => {
+      console.warn('Failed to load live attachments for template, falling back to job cache:', err);
+      const t = messagingService.generateMissingDocsTemplate(job, matchedWorkshop);
+      setTemplates(t);
+      setCustomWhatsAppMessage(t.whatsappMessage);
+      setCustomEmailSubject(t.subject);
+      setCustomEmailBody(t.emailBody);
+      setIsEdited(false);
+    });
 
     setRecipientPhone(matchedWorkshop?.contact_phone || '');
     setRecipientEmail(matchedWorkshop?.contact_email || '');
     setApiFeedback(null);
     setCopied(false);
+
+    return () => {
+      isMounted = false;
+    };
   }, [isOpen, job, matchedWorkshop]);
 
   if (!isOpen || !job || !templates) return null;
 
+  const handleResetToDefault = () => {
+    if (!templates) return;
+    setCustomWhatsAppMessage(templates.whatsappMessage);
+    setCustomEmailSubject(templates.subject);
+    setCustomEmailBody(templates.emailBody);
+    setIsEdited(false);
+  };
+
   const handleCopy = () => {
-    const textToCopy = activeChannel === 'whatsapp' ? templates.whatsappMessage : templates.emailBody;
+    const textToCopy = activeChannel === 'whatsapp' ? customWhatsAppMessage : customEmailBody;
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
@@ -66,7 +109,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
       alert('Please enter a recipient phone number first.');
       return;
     }
-    const url = messagingService.getWhatsAppWebUrl(recipientPhone, templates.whatsappMessage);
+    const url = messagingService.getWhatsAppWebUrl(recipientPhone, customWhatsAppMessage);
     window.open(url, '_blank');
   };
 
@@ -75,7 +118,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
       alert('Please enter a recipient email address first.');
       return;
     }
-    const url = messagingService.getEmailMailtoUrl(recipientEmail, templates.subject, templates.emailBody);
+    const url = messagingService.getEmailMailtoUrl(recipientEmail, customEmailSubject, customEmailBody);
     window.location.href = url;
   };
 
@@ -90,7 +133,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
 
     const result = await messagingService.sendDirectWhatsAppApi(
       recipientPhone,
-      templates.whatsappMessage
+      customWhatsAppMessage
     );
 
     setIsSendingApi(false);
@@ -118,7 +161,11 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
                 <h2 className="font-display font-bold text-base sm:text-lg text-slate-900">
                   REQUEST MISSING COMPLIANCE DOCUMENTS
                 </h2>
-                <span className="font-mono text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
+                <span className={`font-mono text-xs px-2 py-0.5 rounded font-semibold ${
+                  templates.missingDocs.length === 0 
+                    ? 'bg-emerald-100 text-emerald-800' 
+                    : 'bg-amber-100 text-amber-800'
+                }`}>
                   {templates.missingDocs.length} Missing
                 </span>
               </div>
@@ -146,27 +193,34 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
                 <Layers className="w-3.5 h-3.5 text-sky-700" />
                 Live Document Status For This Vehicle
               </span>
-              <span className="text-xs font-semibold text-slate-500 font-mono">
+              <span className="text-xs font-semibold text-slate-600 font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
                 {templates.receivedDocs.length}/8 on file
               </span>
             </div>
 
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {templates.missingDocs.map(doc => (
-                <span
-                  key={doc.type}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold bg-red-100 text-red-800 border border-red-200"
-                >
-                  <AlertCircle className="w-3 h-3 text-red-600" />
-                  Missing {doc.label} ({doc.name})
-                </span>
-              ))}
-            </div>
+            {templates.missingDocs.length === 0 ? (
+              <div className="text-xs text-emerald-700 font-semibold flex items-center gap-1.5 bg-emerald-50 p-2 rounded border border-emerald-200">
+                <Check className="w-4 h-4 text-emerald-600" />
+                <span>All 8 required compliance documents are verified and attached!</span>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {templates.missingDocs.map(doc => (
+                  <span
+                    key={doc.type}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold bg-red-100 text-red-800 border border-red-200"
+                  >
+                    <AlertCircle className="w-3 h-3 text-red-600" />
+                    Missing {doc.label} ({doc.name})
+                  </span>
+                ))}
+              </div>
+            )}
 
             {templates.receivedDocs.length > 0 && (
-              <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-1">
+              <div className="text-[11px] text-slate-600 flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-slate-200/60">
                 <Check className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Already Received: <b>{templates.receivedDocs.map(d => d.label).join(', ')}</b></span>
+                <span>Already Received ({templates.receivedDocs.length}): <b className="text-slate-800 font-mono">{templates.receivedDocs.map(d => d.label).join(', ')}</b></span>
               </div>
             )}
           </div>
@@ -202,7 +256,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
             </div>
           </div>
 
-          {/* Channel Tabs */}
+          {/* Interactive Channel Tabs & Custom Template Editor */}
           <div>
             <div className="flex items-center justify-between border-b border-slate-200 mb-2">
               <div className="flex gap-2">
@@ -216,7 +270,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
                   }`}
                 >
                   <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>WhatsApp Message Preview</span>
+                  <span>WhatsApp Message Editor</span>
                 </button>
 
                 <button
@@ -229,42 +283,98 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
                   }`}
                 >
                   <Mail className="w-3.5 h-3.5 text-sky-600" />
-                  <span>Email Template Preview</span>
+                  <span>Email Template Editor</span>
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded transition"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span className="text-emerald-700">Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Copy Text</span>
-                  </>
+              <div className="flex items-center gap-1.5">
+                {isEdited && (
+                  <button
+                    type="button"
+                    onClick={handleResetToDefault}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded transition"
+                    title="Reset message to dynamic auto-generated template"
+                  >
+                    <RotateCcw className="w-3 h-3 text-amber-600" />
+                    <span>Reset to Default</span>
+                  </button>
                 )}
-              </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded transition"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="text-emerald-700">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Copy Text</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* Template Preview Content */}
+            {/* Custom Editable Message Editor */}
             {activeChannel === 'whatsapp' ? (
-              <div className="bg-emerald-50/40 border border-emerald-200/80 rounded-lg p-4 font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto">
-                {templates.whatsappMessage}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
+                  <span className="flex items-center gap-1">
+                    <Edit3 className="w-3.5 h-3.5 text-emerald-600" />
+                    Custom WhatsApp Text (Editable)
+                  </span>
+                  <span>{customWhatsAppMessage.length} characters</span>
+                </div>
+                <textarea
+                  value={customWhatsAppMessage}
+                  onChange={e => {
+                    setCustomWhatsAppMessage(e.target.value);
+                    setIsEdited(true);
+                  }}
+                  rows={8}
+                  className="w-full bg-emerald-50/30 border border-emerald-300 rounded-lg p-3.5 font-mono text-xs text-slate-800 leading-relaxed focus:ring-2 focus:ring-emerald-500 focus:bg-white resize-y shadow-2xs"
+                  placeholder="Type or customize your WhatsApp message..."
+                />
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-md text-xs">
-                  <span className="font-semibold text-slate-500">Subject: </span>
-                  <span className="font-semibold text-slate-900">{templates.subject}</span>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Email Subject Line (Editable)
+                  </label>
+                  <input
+                    type="text"
+                    value={customEmailSubject}
+                    onChange={e => {
+                      setCustomEmailSubject(e.target.value);
+                      setIsEdited(true);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-md text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-sky-500"
+                  />
                 </div>
-                <div className="bg-slate-50/60 border border-slate-200 rounded-lg p-4 text-xs text-slate-800 whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto">
-                  {templates.emailBody}
+                <div>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium mb-1">
+                    <span className="flex items-center gap-1">
+                      <Edit3 className="w-3.5 h-3.5 text-sky-600" />
+                      Email Body (Editable)
+                    </span>
+                    <span>{customEmailBody.length} characters</span>
+                  </div>
+                  <textarea
+                    value={customEmailBody}
+                    onChange={e => {
+                      setCustomEmailBody(e.target.value);
+                      setIsEdited(true);
+                    }}
+                    rows={8}
+                    className="w-full bg-slate-50/60 border border-slate-300 rounded-lg p-3.5 text-xs text-slate-800 leading-relaxed focus:ring-2 focus:ring-sky-500 focus:bg-white resize-y shadow-2xs font-mono"
+                    placeholder="Type or customize your email body..."
+                  />
                 </div>
               </div>
             )}
@@ -304,7 +414,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
             <button
               type="button"
               onClick={handleOpenWhatsAppWeb}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-md shadow transition"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-md shadow-2xs transition"
               title="Opens WhatsApp Web with message pre-filled"
             >
               <ExternalLink className="w-3.5 h-3.5" />
@@ -315,7 +425,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
               type="button"
               onClick={handleSendDirectWhatsAppApi}
               disabled={isSendingApi}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-md shadow transition disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-semibold rounded-md shadow-2xs transition disabled:opacity-50"
               title="Sends via Meta WhatsApp Cloud API"
             >
               <Sparkles className="w-3.5 h-3.5 text-amber-300" />
@@ -326,7 +436,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
             <button
               type="button"
               onClick={handleOpenEmailClient}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-sky-700 hover:bg-sky-800 text-white text-xs font-semibold rounded-md shadow transition"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-sky-700 hover:bg-sky-800 text-white text-xs font-semibold rounded-md shadow-2xs transition"
               title="Opens your desktop/web mail client (Gmail/Outlook)"
             >
               <Mail className="w-3.5 h-3.5" />

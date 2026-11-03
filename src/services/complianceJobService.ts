@@ -4,14 +4,89 @@ import { attachmentService } from './attachmentService';
 
 export const complianceJobService = {
   async getAll(): Promise<ComplianceJob[]> {
-    // Attempt detailed view first
-    const { data: viewData, error: viewError } = await supabase
-      .from('v_compliance_jobs_detailed')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      // 1. Primary: full relational join including job_attachments for real-time document sync
+      const { data, error } = await supabase
+        .from('compliance_jobs')
+        .select(`
+          *,
+          vehicles ( build_date, via_no ),
+          raw_workshops ( name ),
+          model_reports ( make, model ),
+          job_attachments ( id, doc_type, file_url, file_name, file_size, mime_type, uploaded_at )
+        `)
+        .order('created_at', { ascending: false });
 
-    if (!viewError && viewData) {
-      return (viewData as any[]).map(row => ({
+      if (!error && data) {
+        return (data || []).map((row: any) => {
+          const attachmentsMap: Record<DocType, JobAttachment | null> = {
+            CRE: null, EC: null, CIN: null, WI: null,
+            DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+          };
+          let docCount = 0;
+          if (Array.isArray(row.job_attachments)) {
+            row.job_attachments.forEach((att: any) => {
+              if (att.doc_type in attachmentsMap) {
+                attachmentsMap[att.doc_type as DocType] = att;
+                docCount++;
+              }
+            });
+          }
+
+          return {
+            id: row.id,
+            folder_no: row.folder_no,
+            vin: row.vin,
+            raw_id: row.raw_id,
+            raw_workshop_name: row.raw_workshops?.name || null,
+            mre_no: row.mre_no,
+            make: row.model_reports?.make || null,
+            model: row.model_reports?.model || null,
+            build_date: row.vehicles?.build_date || null,
+            via_no: row.vehicles?.via_no || null,
+            request_received: row.request_received,
+            videos_url: row.videos_url,
+            avv_verification_date: row.avv_verification_date,
+            rav_date_of_entry: row.rav_date_of_entry,
+            status: row.status,
+            error_note: row.error_note,
+            supersedes_folder_no: row.supersedes_folder_no,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            attachments: attachmentsMap,
+            uploaded_docs_count: docCount,
+            is_documents_complete: docCount === 8,
+          };
+        });
+      }
+    } catch (joinErr) {
+      console.warn('Joined compliance query failed, attempting detailed view + attachments fallback', joinErr);
+    }
+
+    // 2. Fallback: Query view and join attachments so attachments are NEVER undefined
+    const [viewRes, attRes] = await Promise.all([
+      supabase.from('v_compliance_jobs_detailed').select('*').order('created_at', { ascending: false }),
+      supabase.from('job_attachments').select('*')
+    ]);
+
+    const allAttachments = (attRes.data || []) as any[];
+
+    return ((viewRes.data as any[]) || []).map(row => {
+      const attachmentsMap: Record<DocType, JobAttachment | null> = {
+        CRE: null, EC: null, CIN: null, WI: null,
+        DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+      };
+      let docCount = 0;
+      allAttachments
+        .filter(a => a.job_id === row.job_id)
+        .forEach(att => {
+          if (att.doc_type in attachmentsMap) {
+            attachmentsMap[att.doc_type as DocType] = att;
+            docCount++;
+          }
+        });
+
+      return {
         id: row.job_id,
         folder_no: row.folder_no,
         vin: row.vin,
@@ -31,62 +106,8 @@ export const complianceJobService = {
         supersedes_folder_no: row.supersedes_folder_no,
         created_at: row.created_at,
         updated_at: row.updated_at,
-        uploaded_docs_count: row.uploaded_docs_count || 0,
-        is_documents_complete: row.is_documents_complete || false,
-      }));
-    }
-
-    // Fallback: standard query with joins
-    const { data, error } = await supabase
-      .from('compliance_jobs')
-      .select(`
-        *,
-        vehicles ( build_date, via_no ),
-        raw_workshops ( name ),
-        model_reports ( make, model ),
-        job_attachments ( id, doc_type, file_url, file_name, file_size, mime_type, uploaded_at )
-      `)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    return (data || []).map((row: any) => {
-      const attachmentsMap: Record<DocType, JobAttachment | null> = {
-        CRE: null, EC: null, CIN: null, WI: null,
-        DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
-      };
-      let docCount = 0;
-      if (Array.isArray(row.job_attachments)) {
-        row.job_attachments.forEach((att: any) => {
-          if (att.doc_type in attachmentsMap) {
-            attachmentsMap[att.doc_type as DocType] = att;
-            docCount++;
-          }
-        });
-      }
-
-      return {
-        id: row.id,
-        folder_no: row.folder_no,
-        vin: row.vin,
-        raw_id: row.raw_id,
-        raw_workshop_name: row.raw_workshops?.name || null,
-        mre_no: row.mre_no,
-        make: row.model_reports?.make || null,
-        model: row.model_reports?.model || null,
-        build_date: row.vehicles?.build_date || null,
-        via_no: row.vehicles?.via_no || null,
-        request_received: row.request_received,
-        videos_url: row.videos_url,
-        avv_verification_date: row.avv_verification_date,
-        rav_date_of_entry: row.rav_date_of_entry,
-        status: row.status,
-        error_note: row.error_note,
-        supersedes_folder_no: row.supersedes_folder_no,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
         attachments: attachmentsMap,
-        uploaded_docs_count: docCount,
+        uploaded_docs_count: docCount || row.uploaded_docs_count || 0,
         is_documents_complete: docCount === 8,
       };
     });
