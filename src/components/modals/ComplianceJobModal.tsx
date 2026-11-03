@@ -211,7 +211,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       }
     } catch (err: any) {
       console.error(err);
-      setDriveFeedback(`Drive sync note: ${err.message || 'Error creating folders'}`);
+      const demo = googleDriveService.getDemoHierarchy(folderNo);
+      setDriveHierarchy(demo);
+      if (!videosUrl) {
+        setVideosUrl(demo.videosFolder.webViewLink);
+      }
+      setDriveFeedback(`Notice: ${err.message || 'Drive connection error'}. Ready in local workspace mode.`);
     } finally {
       setIsSyncingDrive(false);
     }

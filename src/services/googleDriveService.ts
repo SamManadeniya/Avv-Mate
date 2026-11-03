@@ -126,17 +126,34 @@ class GoogleDriveService {
   }
 
   /**
-   * Cleans URLs or IDs to get exact folder ID
-   * E.g. https://drive.google.com/drive/folders/1AbC-D_1234?usp=sharing -> 1AbC-D_1234
+   * Cleans URLs or IDs to get exact folder ID.
+   * Recognizes:
+   * 1. Direct URLs: https://drive.google.com/drive/folders/1AbC-D_1234?usp=sharing -> 1AbC-D_1234
+   * 2. Direct folder IDs: 1AbC-D_1234 (alphanumeric, >= 20 characters)
+   * 3. Friendly names: returns trimmed name if it is not a direct ID
    */
   public cleanFolderId(input: string): string {
     if (!input) return '';
     const trimmed = input.trim();
-    const match = trimmed.match(/folders\/([a-zA-Z0-9_-]+)/);
-    if (match && match[1]) {
-      return match[1];
+    // Matches Google Drive folder URL pattern
+    const urlMatch = trimmed.match(/folders\/([a-zA-Z0-9_-]{15,})/);
+    if (urlMatch && urlMatch[1]) {
+      return urlMatch[1];
     }
-    return trimmed.replace(/[^a-zA-Z0-9_-]/g, '');
+    // If it looks like a valid Google Drive ID (20+ alphanumeric chars without spaces)
+    if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
+      return trimmed;
+    }
+    // Return friendly name
+    return trimmed;
+  }
+
+  /**
+   * Checks whether a string represents a valid Google Drive resource ID
+   */
+  public isValidDriveId(idOrName?: string): boolean {
+    if (!idOrName) return false;
+    return /^[a-zA-Z0-9_-]{20,}$/.test(idOrName.trim());
   }
 
   /**
@@ -300,33 +317,50 @@ class GoogleDriveService {
       }
     } catch (_) {}
 
-    // 2. Validate Google Drive API access via files endpoint (works seamlessly with drive.file scope)
-    const filesRes = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=1', {
-      headers: { Authorization: `Bearer ${activeToken}` },
-    });
+    // 2. Validate Google Drive API access via files endpoint (supportsAllDrives for shared folders)
+    try {
+      const filesRes = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true', {
+        headers: { Authorization: `Bearer ${activeToken}` },
+      });
 
-    if (!filesRes.ok) {
-      let msg = `Google Drive connection failed (${filesRes.status})`;
-      try {
-        const errJson = await filesRes.json();
-        msg = errJson.error?.message || msg;
-      } catch (_) {}
-      throw new Error(msg);
+      if (!filesRes.ok) {
+        let msg = `Google Drive connection failed (${filesRes.status})`;
+        try {
+          const errJson = await filesRes.json();
+          msg = errJson.error?.message || msg;
+        } catch (_) {}
+        throw new Error(msg);
+      }
+    } catch (fetchErr: any) {
+      if (fetchErr.name === 'TypeError' || fetchErr.message?.includes('fetch') || fetchErr.message?.includes('Load failed')) {
+        throw new Error(
+          'Google API blocked browser request (CORS/Origin issue). Please ensure https://avvmate.netlify.app is added to "Authorised JavaScript origins" in Google Cloud Console, and that "Google Drive API" is enabled in your Google Cloud project.'
+        );
+      }
+      throw fetchErr;
     }
 
     let rootFolderName: string | undefined;
     if (this.config.rootFolderId) {
       const cleanRoot = this.cleanFolderId(this.config.rootFolderId);
-      try {
-        const folderRes = await fetch(`https://www.googleapis.com/drive/v3/files/${cleanRoot}?fields=id,name`, {
-          headers: { Authorization: `Bearer ${activeToken}` },
-        });
-        if (folderRes.ok) {
-          const folderData = await folderRes.json();
-          rootFolderName = folderData.name;
+      if (this.isValidDriveId(cleanRoot)) {
+        try {
+          const folderRes = await fetch(`https://www.googleapis.com/drive/v3/files/${cleanRoot}?supportsAllDrives=true&fields=id,name`, {
+            headers: { Authorization: `Bearer ${activeToken}` },
+          });
+          if (folderRes.ok) {
+            const folderData = await folderRes.json();
+            rootFolderName = folderData.name;
+          }
+        } catch (e) {
+          console.warn('Could not fetch root folder name:', e);
         }
-      } catch (e) {
-        console.warn('Could not fetch root folder name:', e);
+      } else {
+        // Root is a friendly name, resolve it
+        const resolvedId = await this.resolveParentFolderId(cleanRoot, activeToken);
+        if (resolvedId) {
+          rootFolderName = cleanRoot;
+        }
       }
     }
 
@@ -345,35 +379,84 @@ class GoogleDriveService {
   }
 
   /**
-   * Finds or creates a folder with given name inside parentFolderId
+   * Resolves a folder name, URL, or ID to a verified Google Drive folder ID.
+   * If given a name (e.g. "AVV Mate Drive"), searches Google Drive including Shared with Me.
+   */
+  public async resolveParentFolderId(idOrName?: string, token?: string): Promise<string | undefined> {
+    if (!idOrName || !idOrName.trim()) return undefined;
+    const clean = this.cleanFolderId(idOrName);
+    if (!clean) return undefined;
+
+    // If it's already a valid Drive ID (alphanumeric >= 20 chars), use directly
+    if (this.isValidDriveId(clean)) {
+      return clean;
+    }
+
+    // It's a friendly folder name (e.g. "AVVMateDrive" or "AVV Mate Drive")
+    const activeToken = token || this.config.accessToken;
+    if (!activeToken) return undefined;
+
+    try {
+      const escaped = clean.replace(/'/g, "\\'");
+      // Also try spaced version (e.g. "AVVMateDrive" -> "AVV Mate Drive")
+      const spacedVariant = clean.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/'/g, "\\'");
+      const q = `mimeType='application/vnd.google-apps.folder' and (name='${escaped}' or name='${spacedVariant}') and trashed=false`;
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=5&fields=files(id,name)`;
+      
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${activeToken}` },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.files && data.files.length > 0) {
+          console.log(`[GoogleDrive] Resolved folder name "${clean}" to Drive ID:`, data.files[0].id);
+          return data.files[0].id;
+        }
+      }
+    } catch (e) {
+      console.warn(`[GoogleDrive] Could not resolve folder name "${clean}":`, e);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Finds or creates a folder with given name inside parentFolderId.
+   * Fully supports shared drives and "Shared with me" folders.
    */
   public async findOrCreateFolder(name: string, parentFolderId?: string): Promise<DriveFolderInfo> {
     const token = this.config.accessToken;
     if (!token) throw new Error('Google Drive access token is not set.');
 
-    const cleanParent = parentFolderId ? this.cleanFolderId(parentFolderId) : '';
+    // Only add to 'parents' query if it's a valid 20+ char ID
+    const validParentId = this.isValidDriveId(parentFolderId) ? parentFolderId : undefined;
     
-    // Query query string
+    // Construct query
     let q = `mimeType='application/vnd.google-apps.folder' and name='${name.replace(/'/g, "\\'")}' and trashed=false`;
-    if (cleanParent) {
-      q += ` and '${cleanParent}' in parents`;
+    if (validParentId) {
+      q += ` and '${validParentId}' in parents`;
     }
 
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,webViewLink)`;
-    const searchRes = await fetch(searchUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    try {
+      const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,webViewLink)`;
+      const searchRes = await fetch(searchUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    if (searchRes.ok) {
-      const searchData = await searchRes.json();
-      if (searchData.files && searchData.files.length > 0) {
-        const existing = searchData.files[0];
-        return {
-          id: existing.id,
-          name: existing.name,
-          webViewLink: existing.webViewLink || `https://drive.google.com/drive/folders/${existing.id}`,
-        };
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        if (searchData.files && searchData.files.length > 0) {
+          const existing = searchData.files[0];
+          return {
+            id: existing.id,
+            name: existing.name,
+            webViewLink: existing.webViewLink || `https://drive.google.com/drive/folders/${existing.id}`,
+          };
+        }
       }
+    } catch (searchErr) {
+      console.warn(`[GoogleDrive] Search error for folder "${name}":`, searchErr);
     }
 
     // Create new folder if not found
@@ -381,11 +464,12 @@ class GoogleDriveService {
       name,
       mimeType: 'application/vnd.google-apps.folder',
     };
-    if (cleanParent) {
-      body.parents = [cleanParent];
+    if (validParentId) {
+      body.parents = [validParentId];
     }
 
-    const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink', {
+    const createUrl = 'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink';
+    let createRes = await fetch(createUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -393,6 +477,20 @@ class GoogleDriveService {
       },
       body: JSON.stringify(body),
     });
+
+    // If creation with parents failed (e.g. 404 or 403 on parent), fallback to root
+    if (!createRes.ok && validParentId) {
+      console.warn(`[GoogleDrive] Failed creating folder "${name}" in parent "${validParentId}", falling back to root Drive...`);
+      delete body.parents;
+      createRes = await fetch(createUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+    }
 
     if (!createRes.ok) {
       const errText = await createRes.text();
@@ -430,38 +528,52 @@ class GoogleDriveService {
       } catch (_) {}
     }
 
-    const rootParentId = this.config.rootFolderId ? this.cleanFolderId(this.config.rootFolderId) : undefined;
-
-    // 1. Create/find Root Vehicle Folder (e.g. SVC1028)
-    const vehicleFolder = await this.findOrCreateFolder(cleanFolder, rootParentId);
-
-    // 2. Create/find DOCS and MEDIA inside SVC1028
-    const [docsFolder, mediaFolder] = await Promise.all([
-      this.findOrCreateFolder('DOCS', vehicleFolder.id),
-      this.findOrCreateFolder('MEDIA', vehicleFolder.id),
-    ]);
-
-    // 3. Create/find PHOTOS, VIDEOS, and SUBMIT inside MEDIA
-    const [photosFolder, videosFolder, submitFolder] = await Promise.all([
-      this.findOrCreateFolder('PHOTOS', mediaFolder.id),
-      this.findOrCreateFolder('VIDEOS', mediaFolder.id),
-      this.findOrCreateFolder('SUBMIT', mediaFolder.id),
-    ]);
-
-    const hierarchy: VehicleDriveHierarchy = {
-      vehicleFolder,
-      docsFolder,
-      mediaFolder,
-      photosFolder,
-      videosFolder,
-      submitFolder,
-    };
+    // Resolve parent root folder (supports name, URL, or ID)
+    let rootParentId: string | undefined;
+    if (this.config.rootFolderId) {
+      rootParentId = await this.resolveParentFolderId(this.config.rootFolderId);
+    }
 
     try {
-      localStorage.setItem(cacheKey, JSON.stringify(hierarchy));
-    } catch (_) {}
+      // 1. Create/find Root Vehicle Folder (e.g. SVC1028)
+      const vehicleFolder = await this.findOrCreateFolder(cleanFolder, rootParentId);
 
-    return hierarchy;
+      // 2. Create/find DOCS and MEDIA inside SVC1028
+      const [docsFolder, mediaFolder] = await Promise.all([
+        this.findOrCreateFolder('DOCS', vehicleFolder.id),
+        this.findOrCreateFolder('MEDIA', vehicleFolder.id),
+      ]);
+
+      // 3. Create/find PHOTOS, VIDEOS, and SUBMIT inside MEDIA
+      const [photosFolder, videosFolder, submitFolder] = await Promise.all([
+        this.findOrCreateFolder('PHOTOS', mediaFolder.id),
+        this.findOrCreateFolder('VIDEOS', mediaFolder.id),
+        this.findOrCreateFolder('SUBMIT', mediaFolder.id),
+      ]);
+
+      const hierarchy: VehicleDriveHierarchy = {
+        vehicleFolder,
+        docsFolder,
+        mediaFolder,
+        photosFolder,
+        videosFolder,
+        submitFolder,
+      };
+
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(hierarchy));
+      } catch (_) {}
+
+      return hierarchy;
+    } catch (err: any) {
+      // If network/CORS error or invalid session, check error type
+      if (err.name === 'TypeError' || err.message?.includes('fetch') || err.message?.includes('Load failed')) {
+        throw new Error(
+          'Google API blocked the connection (CORS / Origin issue). Please check your Google Cloud Console OAuth setup or switch to Demo Mode.'
+        );
+      }
+      throw err;
+    }
   }
 
   /**
@@ -477,10 +589,12 @@ class GoogleDriveService {
 
     const cleanParent = this.cleanFolderId(folderId);
 
-    const metadata = {
+    const metadata: Record<string, any> = {
       name: file.name,
-      parents: [cleanParent],
     };
+    if (this.isValidDriveId(cleanParent)) {
+      metadata.parents = [cleanParent];
+    }
 
     const form = new FormData();
     form.append(
@@ -491,7 +605,7 @@ class GoogleDriveService {
 
     onProgress?.(10);
 
-    const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,webViewLink,webContentLink';
+    const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink,webContentLink';
     
     const res = await fetch(uploadUrl, {
       method: 'POST',
