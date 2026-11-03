@@ -146,7 +146,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden my-4 sm:my-8 max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-2xl max-w-2xl md:max-w-3xl w-full border border-slate-200 overflow-hidden my-4 sm:my-8 max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-50 border-b border-slate-200 shrink-0">
           <div className="flex items-center gap-3">
@@ -180,8 +180,8 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
           )}
 
           {/* VIN & Build Date */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            <div className="min-w-0">
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 VIN (17 Characters) <span className="text-red-500">*</span>
               </label>
@@ -192,7 +192,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 disabled={!!vehicleToEdit}
                 maxLength={17}
                 placeholder="6ZZLLA400K0042734"
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md font-mono text-sm uppercase focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
+                className="w-full min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-md font-mono text-sm uppercase focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
                 required
               />
               {!vinValidation.valid && (
@@ -200,7 +200,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
               )}
             </div>
 
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Build Date (Month/Year) <span className="text-red-500">*</span>
               </label>
@@ -209,7 +209,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 value={buildDate}
                 onChange={e => setBuildDate(e.target.value)}
                 placeholder="07/2020 or 2020-07"
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
+                className="w-full min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
                 required
               />
             </div>
@@ -236,23 +236,23 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
               RAW Workshop Selection & Auto-prefill
             </label>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 items-start">
+              <div className="min-w-0">
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                   Type or Select RAW ID
                 </label>
-                <div className="flex gap-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
                   <input
                     type="text"
                     value={rawId}
                     onChange={e => handleRawIdChange(e.target.value)}
                     placeholder="RAW-000153"
-                    className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono uppercase focus:ring-2 focus:ring-sky-500"
+                    className="flex-1 min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono uppercase focus:ring-2 focus:ring-sky-500"
                   />
                   <select
                     value={rawId}
                     onChange={e => handleRawIdChange(e.target.value)}
-                    className="w-28 px-2 py-2 bg-white border border-slate-300 rounded-md text-xs font-mono"
+                    className="w-28 shrink-0 px-2 py-2 bg-white border border-slate-300 rounded-md text-xs font-mono focus:ring-2 focus:ring-sky-500 text-slate-700"
                   >
                     <option value="">Quick Select</option>
                     {workshops.map(w => (
@@ -264,7 +264,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 </div>
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                   Prefilled Workshop Name
                 </label>
@@ -273,7 +273,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   value={rawWorkshopName}
                   readOnly
                   placeholder="Auto-prefilled from RAW ID..."
-                  className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-semibold text-slate-800"
+                  className="w-full min-w-0 px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-semibold text-slate-800 truncate"
                 />
               </div>
             </div>
@@ -286,15 +286,15 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
               Model Report (MRE) & Auto-prefill
             </label>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="min-w-0">
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                   MRE No
                 </label>
                 <select
                   value={mreNo}
                   onChange={e => handleMreChange(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
+                  className="w-full min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
                 >
                   <option value="">Select MRE...</option>
                   {modelReports.map(m => (
@@ -305,7 +305,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                 </select>
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                   Make
                 </label>
@@ -314,11 +314,11 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   value={make}
                   readOnly
                   placeholder="Auto-filled..."
-                  className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-semibold text-slate-800"
+                  className="w-full min-w-0 px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-semibold text-slate-800 truncate"
                 />
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                   Model
                 </label>
@@ -327,7 +327,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
                   value={model}
                   readOnly
                   placeholder="Auto-filled..."
-                  className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-semibold text-slate-800"
+                  className="w-full min-w-0 px-3 py-2 bg-slate-100 border border-slate-300 rounded-md text-sm font-semibold text-slate-800 truncate"
                 />
               </div>
             </div>
