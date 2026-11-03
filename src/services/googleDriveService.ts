@@ -128,19 +128,27 @@ class GoogleDriveService {
   /**
    * Cleans URLs or IDs to get exact folder ID.
    * Recognizes:
-   * 1. Direct URLs: https://drive.google.com/drive/folders/1AbC-D_1234?usp=sharing -> 1AbC-D_1234
+   * 1. Direct URLs: 
+   *    - https://drive.google.com/drive/folders/1AbC...
+   *    - https://drive.google.com/drive/project/1CabfFBbXFvuYqL5hzaXW0yLYa_01D5rV...
+   *    - https://drive.google.com/file/d/1AbC...
    * 2. Direct folder IDs: 1AbC-D_1234 (alphanumeric, >= 20 characters)
    * 3. Friendly names: returns trimmed name if it is not a direct ID
    */
   public cleanFolderId(input: string): string {
     if (!input) return '';
     const trimmed = input.trim();
-    // Matches Google Drive folder URL pattern
-    const urlMatch = trimmed.match(/folders\/([a-zA-Z0-9_-]{15,})/);
+    // Matches Google Drive folder, project, or file URL patterns
+    const urlMatch = trimmed.match(/(?:folders|project|file\/d)\/([a-zA-Z0-9_-]{15,})/);
     if (urlMatch && urlMatch[1]) {
       return urlMatch[1];
     }
-    // If it looks like a valid Google Drive ID (20+ alphanumeric chars without spaces)
+    // Matches ?id=1AbC...
+    const queryMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+    if (queryMatch && queryMatch[1]) {
+      return queryMatch[1];
+    }
+    // If it looks like a valid Google Drive ID (20+ alphanumeric chars without spaces or slashes)
     if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
       return trimmed;
     }

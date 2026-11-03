@@ -65,9 +65,7 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
     setTestResult(null);
 
     const cleanRoot = googleDriveService.cleanFolderId(rootFolderInput);
-    if (cleanRoot) {
-      googleDriveService.saveConfig({ rootFolderId: cleanRoot });
-    }
+    googleDriveService.saveConfig({ rootFolderId: cleanRoot });
 
     try {
       if (!accessToken.trim() && !config.accessToken) {
@@ -170,9 +168,6 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
 
   const handleSave = () => {
     const cleanRoot = googleDriveService.cleanFolderId(rootFolderInput);
-    if (cleanRoot) {
-      googleDriveService.saveConfig({ rootFolderId: cleanRoot });
-    }
     const updated = googleDriveService.saveConfig({
       enabled: storageMode !== 'supabase_only',
       clientId: clientId.trim(),
