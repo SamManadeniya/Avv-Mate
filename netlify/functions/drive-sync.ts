@@ -812,26 +812,6 @@ export const handler = async (event: any) => {
           console.warn('Drive multipart creation fallback failed:', err);
         }
       }
-        } else {
-          const errText = await createRes.text();
-          if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {
-            return {
-              statusCode: 403,
-              headers,
-              body: JSON.stringify({
-                error: 'Google Sheets API is disabled for Google Cloud Project 43512054136. Please enable it in Google Cloud Console.',
-                enableApiUrl: 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136',
-                apiDisabled: true,
-              }),
-            };
-          }
-          return {
-            statusCode: createRes.status,
-            headers,
-            body: JSON.stringify({ error: `Failed to create Google Spreadsheet: ${errText}` }),
-          };
-        }
-      }
 
       // 3. Move spreadsheet into root AVV Mate Drive folder if not already placed
       if (parentFolderId && spreadsheetId) {
