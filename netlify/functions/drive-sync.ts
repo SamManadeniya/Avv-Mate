@@ -855,14 +855,15 @@ export const handler = async (event: any) => {
         valueInputOption: 'USER_ENTERED',
         data: [
           {
-            range: 'Compliance_Jobs!A1:R1',
+            range: 'Compliance_Jobs!A1:AA1',
             values: [
               [
                 'Folder #', 'VIN', 'RAW ID', 'RAW Workshop Name', 'MRE #',
                 'Make', 'Model', 'Build Date', 'VIA #', 'Request Received',
                 'AVV Verification Date', 'RAV Date of Entry', 'Status',
+                'CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW DECLA', 'PHOTOS',
                 'Docs Uploaded', 'Google Drive Folder', 'Inspection Videos',
-                'Error Note', 'Created At'
+                'Error Note', 'Created At', 'Attachments JSON'
               ]
             ]
           },
@@ -939,8 +940,9 @@ export const handler = async (event: any) => {
             'Folder #', 'VIN', 'RAW ID', 'RAW Workshop Name', 'MRE #',
             'Make', 'Model', 'Build Date', 'VIA #', 'Request Received',
             'AVV Verification Date', 'RAV Date of Entry', 'Status',
+            'CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW DECLA', 'PHOTOS',
             'Docs Uploaded', 'Google Drive Folder', 'Inspection Videos',
-            'Error Note', 'Created At'
+            'Error Note', 'Created At', 'Attachments JSON'
           ]
         ];
 
@@ -950,6 +952,37 @@ export const handler = async (event: any) => {
           const driveCell = folderUrl ? `=HYPERLINK("${folderUrl}", "${j.folder_no}")` : (j.folder_no || '');
           const videosCell = j.videos_url ? `=HYPERLINK("${j.videos_url}", "Watch Videos")` : '';
           const workshopFormula = `=IFERROR(XLOOKUP(C${rowNum}, RAW_Workshops!A:A, RAW_Workshops!B:B), "${(j.raw_workshop_name || '').replace(/"/g, '""')}")`;
+
+          const att = j.attachments || {};
+          const formatDocCell = (docType: string) => {
+            const item = att[docType];
+            if (!item || !item.file_url) return '';
+            return `=HYPERLINK("${item.file_url}", "${(item.file_name || docType).replace(/"/g, '""')}")`;
+          };
+
+          const creCell = formatDocCell('CRE');
+          const ecCell = formatDocCell('EC');
+          const cinCell = formatDocCell('CIN');
+          const wiCell = formatDocCell('WI');
+          const dcCell = formatDocCell('DC');
+          const viCell = formatDocCell('VI');
+          const rawDeclaCell = formatDocCell('RAW_DECLA');
+          const photosCell = att['PHOTOS']?.file_url
+            ? `=HYPERLINK("${att['PHOTOS'].file_url}", "${(att['PHOTOS'].file_name || 'Photos').replace(/"/g, '""')}")`
+            : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
+
+          // Count valid attached documents
+          const docKeys = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'PHOTOS'];
+          let attachedCount = 0;
+          docKeys.forEach(k => {
+            if (att[k]?.file_url) attachedCount++;
+          });
+          if (attachedCount === 0 && j.uploaded_docs_count) {
+            attachedCount = j.uploaded_docs_count;
+          }
+
+          const docsSummary = `${attachedCount}/8 ${attachedCount >= 7 ? 'Complete' : 'Pending'}`;
+          const attachmentsJson = JSON.stringify(att);
 
           jobRows.push([
             j.folder_no || '',
@@ -965,15 +998,24 @@ export const handler = async (event: any) => {
             j.avv_verification_date || '',
             j.rav_date_of_entry || '',
             j.status || 'in_progress',
-            j.uploaded_docs_count !== undefined ? `${j.uploaded_docs_count}/8` : (j.is_documents_complete ? '8/8 Complete' : 'Pending'),
+            creCell,
+            ecCell,
+            cinCell,
+            wiCell,
+            dcCell,
+            viCell,
+            rawDeclaCell,
+            photosCell,
+            docsSummary,
             driveCell,
             videosCell,
             j.error_note || '',
-            j.created_at || new Date().toISOString()
+            j.created_at || new Date().toISOString(),
+            attachmentsJson
           ]);
         });
 
-        updateData.push({ range: 'Compliance_Jobs!A1:R', values: jobRows });
+        updateData.push({ range: 'Compliance_Jobs!A1:AA', values: jobRows });
       }
 
       // 2. Vehicles
@@ -1105,7 +1147,7 @@ export const handler = async (event: any) => {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'spreadsheetId is required' }) };
       }
 
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:R&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:L`;
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:AA&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:L`;
       const readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
       if (!readRes.ok) {
         const errText = await readRes.text();
@@ -1126,29 +1168,99 @@ export const handler = async (event: any) => {
       const readData = await readRes.json();
       const ranges = readData.valueRanges || [];
 
-      // Range 0: Compliance_Jobs
+      // Range 0: Compliance_Jobs (with full attachments reconstruction)
       const jobsRaw = ranges[0]?.values || [];
-      const jobs = jobsRaw.slice(1).filter((r: any[]) => r[0] && r[1]).map((r: any[], i: number) => ({
-        id: `job_sheet_${r[0] || i}`,
-        folder_no: r[0] || '',
-        vin: r[1] || '',
-        raw_id: r[2] || null,
-        raw_workshop_name: r[3] || null,
-        mre_no: r[4] || null,
-        make: r[5] || null,
-        model: r[6] || null,
-        build_date: r[7] || null,
-        via_no: r[8] || null,
-        request_received: r[9] || new Date().toISOString().slice(0, 10),
-        avv_verification_date: r[10] || null,
-        rav_date_of_entry: r[11] || null,
-        status: (['in_progress', 'verified', 'rav_entered', 'errored'].includes(r[12]) ? r[12] : 'in_progress'),
-        uploaded_docs_count: parseInt((r[13] || '').split('/')[0], 10) || 0,
-        is_documents_complete: (r[13] || '').includes('8/8') || (r[13] || '').includes('Complete'),
-        videos_url: (r[15] && r[15].includes('http')) ? r[15] : null,
-        error_note: r[16] || null,
-        created_at: r[17] || new Date().toISOString(),
-      }));
+      const jobs = jobsRaw.slice(1).filter((r: any[]) => r[0] && r[1]).map((r: any[], i: number) => {
+        const folderNo = r[0] || '';
+        const attachmentsMap: Record<string, any> = {
+          CRE: null, EC: null, CIN: null, WI: null,
+          DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+        };
+
+        // 1. Try reading attachments from column AA (index 26 - Attachments JSON)
+        const jsonStr = r[26];
+        if (jsonStr && typeof jsonStr === 'string' && jsonStr.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(jsonStr);
+            ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'PHOTOS'].forEach(k => {
+              if (parsed[k] && parsed[k].file_url) {
+                attachmentsMap[k] = parsed[k];
+              }
+            });
+          } catch (_) {}
+        }
+
+        // 2. Fallback: check document columns N through U:
+        // Col indices: N=13(CRE), O=14(EC), P=15(CIN), Q=16(WI), R=17(DC), S=18(VI), T=19(RAW_DECLA), U=20(PHOTOS)
+        const docCols: Array<{ type: string; colIdx: number }> = [
+          { type: 'CRE', colIdx: 13 },
+          { type: 'EC', colIdx: 14 },
+          { type: 'CIN', colIdx: 15 },
+          { type: 'WI', colIdx: 16 },
+          { type: 'DC', colIdx: 17 },
+          { type: 'VI', colIdx: 18 },
+          { type: 'RAW_DECLA', colIdx: 19 },
+          { type: 'PHOTOS', colIdx: 20 },
+        ];
+
+        docCols.forEach(({ type, colIdx }) => {
+          if (!attachmentsMap[type] && r[colIdx]) {
+            const val = String(r[colIdx]).trim();
+            if (val && val !== 'Missing' && val !== '—') {
+              attachmentsMap[type] = {
+                job_id: `job_sheet_${folderNo}`,
+                doc_type: type,
+                file_name: `${type} Document`,
+                file_url: val.includes('http') ? val : `https://drive.google.com/drive/search?q=${folderNo}`,
+                mime_type: type === 'PHOTOS' ? 'image/jpeg' : 'application/pdf',
+              };
+            }
+          }
+        });
+
+        // Count how many documents are attached
+        let uploadedDocsCount = 0;
+        ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'PHOTOS'].forEach(k => {
+          if (attachmentsMap[k]) uploadedDocsCount++;
+        });
+
+        const docsSummary = r[21] || r[13] || '';
+        if (uploadedDocsCount === 0 && docsSummary) {
+          uploadedDocsCount = parseInt(String(docsSummary).split('/')[0], 10) || 0;
+        }
+
+        const isComplete = uploadedDocsCount >= 7 || String(docsSummary).includes('Complete') || String(docsSummary).includes('8/8');
+
+        // Column indices:
+        // If 27 cols: W=22(drive), X=23(videos), Y=24(error), Z=25(created_at)
+        // If 18 cols: O=14(drive), P=15(videos), Q=16(error), R=17(created_at)
+        const videosUrl = (r[23] && r[23].includes('http')) ? r[23] : ((r[15] && r[15].includes('http')) ? r[15] : null);
+        const errorNote = r[24] || r[16] || null;
+        const createdAt = r[25] || r[17] || new Date().toISOString();
+
+        return {
+          id: `job_sheet_${folderNo || i}`,
+          folder_no: folderNo,
+          vin: r[1] || '',
+          raw_id: r[2] || null,
+          raw_workshop_name: r[3] || null,
+          mre_no: r[4] || null,
+          make: r[5] || null,
+          model: r[6] || null,
+          build_date: r[7] || null,
+          via_no: r[8] || null,
+          request_received: r[9] || new Date().toISOString().slice(0, 10),
+          avv_verification_date: r[10] || null,
+          rav_date_of_entry: r[11] || null,
+          status: (['in_progress', 'verified', 'rav_entered', 'errored'].includes(r[12]) ? r[12] : 'in_progress'),
+          attachments: attachmentsMap,
+          uploaded_docs_count: uploadedDocsCount,
+          is_documents_complete: isComplete,
+          videos_url: videosUrl,
+          error_note: errorNote,
+          created_at: createdAt,
+        };
+      });
 
       // Range 1: Vehicles
       const vehiclesRaw = ranges[1]?.values || [];

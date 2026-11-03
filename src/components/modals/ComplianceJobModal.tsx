@@ -130,8 +130,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setStatus(jobToEdit.status || 'in_progress');
       setErrorNote(jobToEdit.error_note || '');
 
-      // Load attachments
-      attachmentService.getByJobId(jobToEdit.id).then(setAttachments);
+      // Load attachments: prioritize existing job attachments from state/Sheets, or query Supabase
+      if (jobToEdit.attachments && Object.values(jobToEdit.attachments).some(a => Boolean(a))) {
+        setAttachments(jobToEdit.attachments);
+      } else {
+        attachmentService.getByJobId(jobToEdit.id).then(att => {
+          if (att && Object.values(att).some(a => Boolean(a))) {
+            setAttachments(att);
+          }
+        }).catch(() => {});
+      }
 
       // Match vehicle
       const v = vehicles.find(item => item.vin.toUpperCase() === jobToEdit.vin.toUpperCase());
@@ -187,8 +195,21 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setErrorMessage('');
 
       if (jobToEdit?.id) {
-        // Direct upload to Supabase
-        const att = await attachmentService.uploadFile(jobToEdit.id, docType, file);
+        let att: any = null;
+        try {
+          att = await attachmentService.uploadFile(jobToEdit.id, docType, file);
+        } catch (supaErr) {
+          console.warn('Supabase attachment upload skipped/fallback:', supaErr);
+          att = {
+            job_id: jobToEdit.id,
+            doc_type: docType,
+            file_name: file.name,
+            file_size: file.size,
+            mime_type: file.type,
+            file_url: URL.createObjectURL(file),
+            _fileObject: file,
+          };
+        }
         setAttachments(prev => ({ ...prev, [docType]: att }));
 
         // Automatic mirror to Google Drive with proper folder segregation:
@@ -558,16 +579,31 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       const uploadedAttachments: Record<string, { name: string; url: string; mimeType: string; docType: DocType }> = {};
 
       if (jobToEdit) {
-        savedJob = await complianceJobService.update(jobToEdit.id, {
-          raw_id: rawId || null,
-          mre_no: mreNo || null,
-          request_received: requestReceived,
-          videos_url: videosUrl || null,
-          avv_verification_date: avvVerificationDate || null,
-          rav_date_of_entry: ravDateOfEntry || null,
-          status,
-          error_note: errorNote || null,
-        });
+        try {
+          savedJob = await complianceJobService.update(jobToEdit.id, {
+            raw_id: rawId || null,
+            mre_no: mreNo || null,
+            request_received: requestReceived,
+            videos_url: videosUrl || null,
+            avv_verification_date: avvVerificationDate || null,
+            rav_date_of_entry: ravDateOfEntry || null,
+            status,
+            error_note: errorNote || null,
+          });
+        } catch (updateErr) {
+          console.warn('Supabase update bypassed/failed, updating locally:', updateErr);
+          savedJob = {
+            ...jobToEdit,
+            raw_id: rawId || null,
+            mre_no: mreNo || null,
+            request_received: requestReceived,
+            videos_url: videosUrl || null,
+            avv_verification_date: avvVerificationDate || null,
+            rav_date_of_entry: ravDateOfEntry || null,
+            status,
+            error_note: errorNote || null,
+          };
+        }
 
         // Collect existing attachments
         for (const [docKey, att] of Object.entries(attachments)) {
@@ -581,20 +617,37 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           }
         }
       } else {
-        savedJob = await complianceJobService.create({
-          folder_no: folderNo.toUpperCase().trim(),
-          vin: vin.toUpperCase().trim(),
-          raw_id: rawId || null,
-          mre_no: mreNo || null,
-          request_received: requestReceived,
-          videos_url: videosUrl || null,
-          avv_verification_date: avvVerificationDate || null,
-          rav_date_of_entry: ravDateOfEntry || null,
-          status,
-          error_note: errorNote || null,
-        });
+        try {
+          savedJob = await complianceJobService.create({
+            folder_no: folderNo.toUpperCase().trim(),
+            vin: vin.toUpperCase().trim(),
+            raw_id: rawId || null,
+            mre_no: mreNo || null,
+            request_received: requestReceived,
+            videos_url: videosUrl || null,
+            avv_verification_date: avvVerificationDate || null,
+            rav_date_of_entry: ravDateOfEntry || null,
+            status,
+            error_note: errorNote || null,
+          });
+        } catch (createErr) {
+          console.warn('Supabase create bypassed/failed, creating locally:', createErr);
+          savedJob = {
+            id: `job_sheet_${folderNo.toUpperCase().trim()}`,
+            folder_no: folderNo.toUpperCase().trim(),
+            vin: vin.toUpperCase().trim(),
+            raw_id: rawId || null,
+            mre_no: mreNo || null,
+            request_received: requestReceived,
+            videos_url: videosUrl || null,
+            avv_verification_date: avvVerificationDate || null,
+            rav_date_of_entry: ravDateOfEntry || null,
+            status,
+            error_note: errorNote || null,
+          };
+        }
 
-        // Upload any queued attachments from creation form to Supabase Storage
+        // Upload any queued attachments from creation form to Supabase Storage if available
         for (const [docKey, att] of Object.entries(attachments)) {
           if (att?._fileObject) {
             try {
@@ -606,8 +659,21 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 docType: docKey as DocType,
               };
             } catch (upErr) {
-              console.warn(`Failed uploading ${docKey} to Supabase:`, upErr);
+              console.warn(`Supabase upload skipped for ${docKey}:`, upErr);
+              uploadedAttachments[docKey] = {
+                name: att.file_name,
+                url: att.file_url,
+                mimeType: att.mime_type || 'application/pdf',
+                docType: docKey as DocType,
+              };
             }
+          } else if (att?.file_url) {
+            uploadedAttachments[docKey] = {
+              name: att.file_name,
+              url: att.file_url,
+              mimeType: att.mime_type || 'application/pdf',
+              docType: docKey as DocType,
+            };
           }
         }
       }
