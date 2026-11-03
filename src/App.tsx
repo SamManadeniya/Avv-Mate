@@ -26,7 +26,7 @@ import { RefreshCw, Database, FileSpreadsheet, AlertTriangle, ExternalLink } fro
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('jobs');
-  const [isConnected, setIsConnected] = useState(true);
+  const [, setIsConnected] = useState(true);
   const [, setIsLoading] = useState(true);
   const [dbSetupNeeded, setDbSetupNeeded] = useState(false);
 
@@ -222,6 +222,12 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const handleDbModeChange = () => {
+      setIsSheetsPrimary(googleSheetsService.isSheetsPrimary());
+      loadData();
+    };
+    window.addEventListener('avv_mate_db_mode_changed', handleDbModeChange);
+    return () => window.removeEventListener('avv_mate_db_mode_changed', handleDbModeChange);
   }, [loadData]);
 
   // Handlers for Compliance Jobs
@@ -312,14 +318,27 @@ export const App: React.FC = () => {
   // Handlers for Google Sheets Master Database
   const handleMasterSheetOpen = async () => {
     try {
-      setSheetsFeedback('Locating or creating Master Database in Google Drive...');
+      setSheetsFeedback('Syncing & opening Master Database in Google Sheets...');
       if (!googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
         await googleDriveService.requestOAuthToken();
       }
+
+      // Auto-sync latest data to Master Sheet before opening
+      try {
+        await googleSheetsService.syncAllDataToMasterSheet(
+          complianceJobs,
+          vehicles,
+          workshops,
+          modelReports
+        );
+      } catch (syncErr) {
+        console.warn('Pre-open sync notice:', syncErr);
+      }
+
       const info = await googleSheetsService.getMasterSpreadsheet(true);
       setMasterSheetUrl(info.webViewLink);
       window.open(info.webViewLink, '_blank');
-      setSheetsFeedback('✓ Master Database opened in Google Sheets (AVV Mate Drive)');
+      setSheetsFeedback('✓ Master Database synced & opened in Google Sheets');
       setSheetsApiDisabledUrl(null);
       setTimeout(() => setSheetsFeedback(null), 5000);
     } catch (err: any) {
@@ -376,18 +395,6 @@ export const App: React.FC = () => {
     } finally {
       setIsSyncingSheets(false);
     }
-  };
-
-  const handleToggleDbMode = (useSheets: boolean) => {
-    googleSheetsService.setSheetsPrimary(useSheets);
-    setIsSheetsPrimary(useSheets);
-    loadData();
-    setSheetsFeedback(
-      useSheets
-        ? '✓ Switched to Google Sheets as Primary Database (Supabase bypassed).'
-        : '✓ Switched to Supabase as Primary Database.'
-    );
-    setTimeout(() => setSheetsFeedback(null), 5000);
   };
 
   // Confirm Delete Action
@@ -460,15 +467,12 @@ export const App: React.FC = () => {
         masterSheetUrl={masterSheetUrl}
         onSyncAllToSheets={handleSyncAllToSheets}
         isSyncingSheets={isSyncingSheets}
-        isSheetsPrimary={isSheetsPrimary}
-        onToggleDbMode={handleToggleDbMode}
         counts={{
           jobs: complianceJobs.length,
           vehicles: vehicles.length,
           workshops: workshops.length,
           reports: modelReports.length,
         }}
-        isConnected={isConnected}
         isDriveConnected={isDriveConnected}
       />
 

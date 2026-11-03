@@ -5,8 +5,6 @@ import {
   FileText, 
   ShieldCheck, 
   Plus, 
-  CheckCircle, 
-  AlertCircle,
   HardDrive,
   FileSpreadsheet,
   RefreshCw
@@ -23,15 +21,12 @@ interface NavbarProps {
   masterSheetUrl?: string;
   onSyncAllToSheets?: () => void;
   isSyncingSheets?: boolean;
-  isSheetsPrimary?: boolean;
-  onToggleDbMode?: (useSheets: boolean) => void;
   counts: {
     jobs: number;
     vehicles: number;
     workshops: number;
     reports: number;
   };
-  isConnected: boolean;
   isDriveConnected?: boolean;
 }
 
@@ -44,10 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   masterSheetUrl,
   onSyncAllToSheets,
   isSyncingSheets = false,
-  isSheetsPrimary = false,
-  onToggleDbMode,
   counts,
-  isConnected,
   isDriveConnected = false,
 }) => {
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; count: number }[] = [
@@ -190,44 +182,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>{isSyncingSheets ? 'Syncing...' : 'Sync Sheet'}</span>
               </button>
             )}
-
-            {/* Database State Badge */}
-            <div
-              className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-mono font-medium transition cursor-pointer ${
-                isSheetsPrimary
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100'
-                  : isConnected
-                  ? 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
-                  : 'bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100'
-              }`}
-              onClick={() => onToggleDbMode && onToggleDbMode(!isSheetsPrimary)}
-              title={
-                isSheetsPrimary
-                  ? 'Google Sheets is your primary database (Supabase disconnected). Click to toggle mode.'
-                  : isConnected
-                  ? 'Supabase live. Click to switch to Google Sheets Master Database.'
-                  : 'Supabase offline. Click to switch to Google Sheets Master Database.'
-              }
-            >
-              {isSheetsPrimary ? (
-                <>
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="hidden sm:inline">Sheet DB Live</span>
-                  <span className="sm:hidden">Sheet DB</span>
-                </>
-              ) : isConnected ? (
-                <>
-                  <CheckCircle className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                  <span className="hidden sm:inline">Supabase Live</span>
-                  <span className="sm:hidden">Live</span>
-                </>
-              ) : (
-                <>
-                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 animate-pulse shrink-0" />
-                  <span>Use Sheet DB</span>
-                </>
-              )}
-            </div>
 
             <button
               onClick={onNewJobClick}
