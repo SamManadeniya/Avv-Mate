@@ -54,7 +54,12 @@ class GoogleSheetsService {
     const cachedId = localStorage.getItem(this.STORAGE_KEY_ID);
     const cachedUrl = localStorage.getItem(this.STORAGE_KEY_URL);
 
-    if (!forceRefresh && cachedId && cachedUrl) {
+    // Discard any dummy demo URLs that trigger Google's "file does not exist"
+    if (cachedUrl && (cachedUrl.includes('demo_') || !cachedUrl.includes('google.com/spreadsheets/d/'))) {
+      localStorage.removeItem(this.STORAGE_KEY_ID);
+      localStorage.removeItem(this.STORAGE_KEY_URL);
+      this.sheetInfoCache = null;
+    } else if (!forceRefresh && cachedId && cachedUrl) {
       this.sheetInfoCache = {
         spreadsheetId: cachedId,
         title: 'AVV Mate Master Database',
@@ -63,17 +68,20 @@ class GoogleSheetsService {
       return this.sheetInfoCache;
     }
 
+    // Auto-refresh token if expired
+    if (googleDriveService.isConfigured() && !googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
+      try {
+        await googleDriveService.requestOAuthToken();
+      } catch (authErr) {
+        console.warn('OAuth refresh before master spreadsheet:', authErr);
+      }
+    }
+
     const token = googleDriveService.getConfig().accessToken;
     const parentFolderId = googleDriveService.getConfig().rootFolderId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
 
     if (!token) {
-      // Offline / demo fallback
-      const demoUrl = `https://docs.google.com/spreadsheets/d/demo_master_spreadsheet/edit`;
-      return {
-        spreadsheetId: 'demo_master_spreadsheet',
-        title: 'AVV Mate Master Database (Demo)',
-        webViewLink: demoUrl,
-      };
+      throw new Error('Google Drive account is not authorized. Please click "Drive Active" in the top bar to connect your Google account.');
     }
 
     try {
@@ -94,6 +102,10 @@ class GoogleSheetsService {
       }
 
       const data = await res.json();
+      if (!data.spreadsheetId) {
+        throw new Error('Server did not return a valid Master Spreadsheet ID.');
+      }
+
       const info: MasterSheetInfo = {
         spreadsheetId: data.spreadsheetId,
         title: data.title || 'AVV Mate Master Database',
@@ -107,8 +119,8 @@ class GoogleSheetsService {
 
       return info;
     } catch (err: any) {
-      console.warn('Serverless master spreadsheet check failed:', err);
-      if (cachedId && cachedUrl) {
+      console.warn('Master spreadsheet lookup failed:', err);
+      if (cachedId && cachedUrl && !cachedUrl.includes('demo_')) {
         return {
           spreadsheetId: cachedId,
           title: 'AVV Mate Master Database',
@@ -212,12 +224,13 @@ class GoogleSheetsService {
    * Returns direct URL to open Master Google Sheet in browser.
    */
   public getMasterSheetUrl(): string {
-    return (
-      this.sheetInfoCache?.webViewLink ||
-      localStorage.getItem(this.STORAGE_KEY_URL) ||
-      'https://docs.google.com/spreadsheets'
-    );
+    const cached = this.sheetInfoCache?.webViewLink || localStorage.getItem(this.STORAGE_KEY_URL);
+    if (cached && !cached.includes('demo_') && cached.includes('google.com/spreadsheets/d/')) {
+      return cached;
+    }
+    return 'https://drive.google.com/drive/folders/12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
   }
 }
 
 export const googleSheetsService = new GoogleSheetsService();
+

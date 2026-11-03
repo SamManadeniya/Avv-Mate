@@ -311,12 +311,19 @@ export const App: React.FC = () => {
   // Handlers for Google Sheets Master Database
   const handleMasterSheetOpen = async () => {
     try {
-      const info = await googleSheetsService.getMasterSpreadsheet();
+      setSheetsFeedback('Locating or creating Master Database in Google Drive...');
+      if (!googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
+        await googleDriveService.requestOAuthToken();
+      }
+      const info = await googleSheetsService.getMasterSpreadsheet(true);
       setMasterSheetUrl(info.webViewLink);
       window.open(info.webViewLink, '_blank');
+      setSheetsFeedback('✓ Master Database opened in Google Sheets (AVV Mate Drive)');
+      setTimeout(() => setSheetsFeedback(null), 5000);
     } catch (err: any) {
       console.error('Error opening master sheet:', err);
-      window.open('https://docs.google.com/spreadsheets', '_blank');
+      setSheetsFeedback(`Notice: ${err.message || 'Opening AVV Mate Drive folder'}`);
+      window.open('https://drive.google.com/drive/folders/12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5', '_blank');
     }
   };
 

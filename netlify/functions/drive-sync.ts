@@ -657,41 +657,76 @@ export const handler = async (event: any) => {
         console.warn('Error searching for master spreadsheet:', err);
       }
 
-      // 2. Create the 4-tab spreadsheet via Google Sheets API
-      const createUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
-      const sheetTabs = [
-        { properties: { title: 'Compliance_Jobs', gridProperties: { frozenRowCount: 1 } } },
-        { properties: { title: 'Vehicles', gridProperties: { frozenRowCount: 1 } } },
-        { properties: { title: 'RAW_Workshops', gridProperties: { frozenRowCount: 1 } } },
-        { properties: { title: 'Model_Reports', gridProperties: { frozenRowCount: 1 } } },
-      ];
+      // 2. Primary: Create the spreadsheet directly via Google Drive API (requires ONLY Google Drive API)
+      let spreadsheetId: string | null = null;
+      let webViewLink: string | null = null;
 
-      const createRes = await fetch(createUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          properties: { title },
-          sheets: sheetTabs,
-        }),
-      });
-
-      if (!createRes.ok) {
-        const errText = await createRes.text();
-        return {
-          statusCode: createRes.status,
-          headers,
-          body: JSON.stringify({ error: `Failed to create Google Spreadsheet: ${errText}` }),
+      try {
+        const driveCreateUrl = 'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name,webViewLink';
+        const driveBody: Record<string, any> = {
+          name: title,
+          mimeType: 'application/vnd.google-apps.spreadsheet',
         };
+        if (parentFolderId) {
+          driveBody.parents = [parentFolderId];
+        }
+
+        const driveRes = await fetch(driveCreateUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(driveBody),
+        });
+
+        if (driveRes.ok) {
+          const driveData = await driveRes.json();
+          spreadsheetId = driveData.id;
+          webViewLink = driveData.webViewLink || `https://docs.google.com/spreadsheets/d/${driveData.id}/edit`;
+        }
+      } catch (driveCreateErr) {
+        console.warn('Drive API spreadsheet creation failed, trying Sheets API fallback:', driveCreateErr);
       }
 
-      const createData = await createRes.json();
-      const spreadsheetId = createData.spreadsheetId;
+      // Secondary fallback: Try creating via Sheets API
+      if (!spreadsheetId) {
+        const createUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
+        const sheetTabs = [
+          { properties: { title: 'Compliance_Jobs', gridProperties: { frozenRowCount: 1 } } },
+          { properties: { title: 'Vehicles', gridProperties: { frozenRowCount: 1 } } },
+          { properties: { title: 'RAW_Workshops', gridProperties: { frozenRowCount: 1 } } },
+          { properties: { title: 'Model_Reports', gridProperties: { frozenRowCount: 1 } } },
+        ];
 
-      // 3. Move spreadsheet into root AVV Mate Drive folder
-      if (parentFolderId) {
+        const createRes = await fetch(createUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            properties: { title },
+            sheets: sheetTabs,
+          }),
+        });
+
+        if (createRes.ok) {
+          const createData = await createRes.json();
+          spreadsheetId = createData.spreadsheetId;
+          webViewLink = createData.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+        } else {
+          const errText = await createRes.text();
+          return {
+            statusCode: createRes.status,
+            headers,
+            body: JSON.stringify({ error: `Failed to create Google Spreadsheet: ${errText}` }),
+          };
+        }
+      }
+
+      // 3. Move spreadsheet into root AVV Mate Drive folder if not already placed
+      if (parentFolderId && spreadsheetId) {
         try {
           const moveUrl = `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${parentFolderId}&supportsAllDrives=true`;
           await fetch(moveUrl, {
@@ -704,7 +739,22 @@ export const handler = async (event: any) => {
         }
       }
 
-      // 4. Initialize Header Rows with stylish styling
+      // 4. Try to add 4 tabs via Sheets API (if Sheets API is enabled, otherwise default Sheet1 exists)
+      try {
+        const addTabsReq = [
+          { addSheet: { properties: { title: 'Compliance_Jobs' } } },
+          { addSheet: { properties: { title: 'Vehicles' } } },
+          { addSheet: { properties: { title: 'RAW_Workshops' } } },
+          { addSheet: { properties: { title: 'Model_Reports' } } },
+        ];
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requests: addTabsReq }),
+        });
+      } catch (_) {}
+
+      // 5. Initialize Header Rows
       const headersPayload = {
         valueInputOption: 'USER_ENTERED',
         data: [
@@ -757,30 +807,8 @@ export const handler = async (event: any) => {
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify(headersPayload),
         });
-
-        // Format header rows (navy background, white bold text)
-        const formatRequests = (createData.sheets || []).map((s: any) => ({
-          repeatCell: {
-            range: { sheetId: s.properties?.sheetId ?? 0, startRowIndex: 0, endRowIndex: 1 },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: { red: 0.05, green: 0.25, blue: 0.45 },
-                textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true, fontSize: 10 }
-              }
-            },
-            fields: 'userEnteredFormat(backgroundColor,textFormat)'
-          }
-        }));
-
-        if (formatRequests.length > 0) {
-          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ requests: formatRequests }),
-          });
-        }
       } catch (formatErr) {
-        console.warn('Header formatting skipped:', formatErr);
+        console.warn('Header populating skipped:', formatErr);
       }
 
       return {
@@ -791,7 +819,7 @@ export const handler = async (event: any) => {
           created: true,
           spreadsheetId,
           title,
-          webViewLink: createData.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+          webViewLink: webViewLink || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
         }),
       };
     }
