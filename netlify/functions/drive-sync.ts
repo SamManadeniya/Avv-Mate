@@ -4,10 +4,13 @@
  */
 
 interface RequestBody {
-  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders';
+  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile';
   folderNo?: string;
   parentFolderId?: string;
   folderId?: string;
+  name?: string;
+  mimeType?: string;
+  base64Data?: string;
   hierarchy?: {
     docsFolder?: { id: string };
     photosFolder?: { id: string };
@@ -122,7 +125,7 @@ const uploadFileBufferServer = async (
   folderId: string,
   fileName: string,
   mimeType: string,
-  fileBytes: ArrayBuffer
+  fileBytes: ArrayBuffer | Uint8Array
 ) => {
   // Check if file with same name already exists in folder to avoid duplicates
   try {
@@ -157,7 +160,8 @@ const uploadFileBufferServer = async (
   const mediaHeaderBuffer = encoder.encode(mediaHeader);
   const closeBuffer = encoder.encode(closeDelimiter);
 
-  const totalLength = metadataBuffer.byteLength + mediaHeaderBuffer.byteLength + fileBytes.byteLength + closeBuffer.byteLength;
+  const bytes = fileBytes instanceof Uint8Array ? fileBytes : new Uint8Array(fileBytes);
+  const totalLength = metadataBuffer.byteLength + mediaHeaderBuffer.byteLength + bytes.byteLength + closeBuffer.byteLength;
   const combined = new Uint8Array(totalLength);
 
   let offset = 0;
@@ -165,8 +169,8 @@ const uploadFileBufferServer = async (
   offset += metadataBuffer.byteLength;
   combined.set(mediaHeaderBuffer, offset);
   offset += mediaHeaderBuffer.byteLength;
-  combined.set(new Uint8Array(fileBytes), offset);
-  offset += fileBytes.byteLength;
+  combined.set(bytes, offset);
+  offset += bytes.byteLength;
   combined.set(closeBuffer, offset);
 
   const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink';
@@ -451,6 +455,39 @@ export const handler = async (event: any) => {
           success: true,
           uploaded,
           count: uploaded.length,
+        }),
+      };
+    }
+
+    if (payload.action === 'uploadFile') {
+      const folderId = payload.folderId;
+      const fileName = payload.name;
+      const mimeType = payload.mimeType || payload.files?.[0]?.mimeType || 'image/jpeg';
+      const base64 = payload.base64Data;
+
+      if (!folderId || !fileName || !base64) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'folderId, name, and base64Data are required.' }),
+        };
+      }
+
+      const fileBuffer = Buffer.from(base64, 'base64');
+      const uploaded = await uploadFileBufferServer(
+        token,
+        folderId,
+        fileName,
+        mimeType,
+        fileBuffer
+      );
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          uploaded,
         }),
       };
     }

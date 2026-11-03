@@ -799,7 +799,8 @@ class GoogleDriveService {
   }
 
   /**
-   * Uploads a single file to a specific Drive folder via Google Drive Multipart API
+   * Uploads a single file to a specific Drive folder.
+   * Uses serverless proxy on Netlify to completely bypass browser CORS and CSP.
    */
   public async uploadFile(
     folderId: string,
@@ -811,6 +812,52 @@ class GoogleDriveService {
 
     const cleanParent = this.cleanFolderId(folderId);
 
+    // 1. Primary: Serverless Proxy Upload via Netlify (Immune to browser CORS)
+    try {
+      onProgress?.(20);
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const commaIdx = result.indexOf(',');
+          resolve(commaIdx !== -1 ? result.substring(commaIdx + 1) : result);
+        };
+        reader.onerror = err => reject(err);
+        reader.readAsDataURL(file);
+      });
+
+      onProgress?.(50);
+      const proxyRes = await fetch('/api/drive-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'uploadFile',
+          folderId: cleanParent,
+          name: file.name,
+          mimeType: file.type || 'image/jpeg',
+          base64Data,
+          accessToken: token,
+        }),
+      });
+
+      if (proxyRes.ok) {
+        const proxyData = await proxyRes.json();
+        if (proxyData.success && proxyData.uploaded) {
+          onProgress?.(100);
+          return {
+            id: proxyData.uploaded.id,
+            name: proxyData.uploaded.name,
+            mimeType: file.type || 'image/jpeg',
+            size: file.size,
+            webViewLink: proxyData.uploaded.webViewLink || `https://drive.google.com/file/d/${proxyData.uploaded.id}/view`,
+          };
+        }
+      }
+    } catch (proxyErr) {
+      console.warn('[GoogleDrive] Proxy upload error, attempting direct upload:', proxyErr);
+    }
+
+    // 2. Direct browser fallback (in local dev without Netlify functions)
     const metadata: Record<string, any> = {
       name: file.name,
     };
@@ -825,7 +872,7 @@ class GoogleDriveService {
     );
     form.append('file', file);
 
-    onProgress?.(10);
+    onProgress?.(60);
 
     const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink,webContentLink';
     

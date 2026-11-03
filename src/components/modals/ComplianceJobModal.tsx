@@ -75,6 +75,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
   // Batch Photos (30–80+ photos)
   const [batchPhotosCount, setBatchPhotosCount] = useState<number>(0);
+  const [queuedBatchPhotos, setQueuedBatchPhotos] = useState<File[]>([]);
   const [isBatchUploading, setIsBatchUploading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; currentFile: string } | null>(null);
 
@@ -124,6 +125,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         CRE: null, EC: null, CIN: null, WI: null,
         DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
       });
+      setQueuedBatchPhotos([]);
+      setBatchPhotosCount(0);
     }
     setIsDriveConfigured(googleDriveService.isConfigured());
     setDriveFeedback(null);
@@ -276,11 +279,17 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     setDriveFeedback(null);
 
     try {
+      if (googleDriveService.isConfigured() && !googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
+        setDriveFeedback('Authorizing Google Drive...');
+        await googleDriveService.requestOAuthToken();
+        setIsDriveConfigured(googleDriveService.isConfigured());
+      }
+
       let targetHierarchy = driveHierarchy;
-      if (!targetHierarchy) {
+      if (!targetHierarchy || !targetHierarchy.photosFolder?.id) {
         try {
-          if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
-            targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
+          if (googleDriveService.isConfigured()) {
+            targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo, false);
           } else {
             targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
           }
@@ -291,28 +300,30 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         setDriveHierarchy(targetHierarchy);
       }
 
-      setBatchPhotosCount(prev => prev + filesArray.length);
+      setQueuedBatchPhotos(prev => [...prev, ...filesArray]);
+      const newTotal = batchPhotosCount + filesArray.length;
+      setBatchPhotosCount(newTotal);
 
-      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy) {
+      if (googleDriveService.isConfigured() && targetHierarchy?.photosFolder?.id) {
         try {
-          await googleDriveService.uploadBatch(
+          const uploaded = await googleDriveService.uploadBatch(
             targetHierarchy.photosFolder.id,
             filesArray,
             (completed, total, currentFile) => {
               setBatchProgress({ completed, total, currentFile });
             }
           );
-          setDriveFeedback(`Successfully uploaded ${filesArray.length} photos to Google Drive (${folderNo}/MEDIA/PHOTOS)`);
-        } catch (driveErr) {
-          console.warn('Google Drive batch upload skipped, storing in workbench:', driveErr);
-          setDriveFeedback(`Photos saved to compliance records (Drive session unlinked on this device).`);
+          setDriveFeedback(`✓ Successfully uploaded all ${uploaded.length} photos to Google Drive (${folderNo}/MEDIA/PHOTOS)`);
+        } catch (driveErr: any) {
+          console.warn('Google Drive batch upload warning:', driveErr);
+          setDriveFeedback(`Photos queued in compliance job: ${driveErr.message || 'Queued'}`);
         }
       }
 
       // Mark the PHOTOS slot as attached
       const firstFile = filesArray[0];
       const photosAtt = {
-        file_name: `${filesArray.length} Compliance Photos (${folderNo}/MEDIA/PHOTOS)`,
+        file_name: `${newTotal} Compliance Photos (${folderNo}/MEDIA/PHOTOS)`,
         file_size: filesArray.reduce((acc, f) => acc + f.size, 0),
         mime_type: 'image/jpeg',
         file_url: targetHierarchy?.photosFolder.webViewLink || URL.createObjectURL(firstFile),
@@ -325,7 +336,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           ...prev,
           PHOTOS: {
             ...att,
-            file_name: `${filesArray.length} Compliance Photos (${folderNo}/MEDIA/PHOTOS)`,
+            file_name: `${newTotal} Compliance Photos (${folderNo}/MEDIA/PHOTOS)`,
             file_url: targetHierarchy?.photosFolder.webViewLink || att.file_url
           }
         }));
@@ -484,6 +495,14 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           // 2. Upload/sync all files into their dedicated folders
           if (attList.length > 0) {
             await googleDriveService.syncJobAttachmentsToDrive(cleanNo, attList);
+          }
+
+          // 3. Upload all queued batch photos directly into MEDIA/PHOTOS
+          if (queuedBatchPhotos.length > 0 && hierarchy.photosFolder?.id) {
+            await googleDriveService.uploadBatch(
+              hierarchy.photosFolder.id,
+              queuedBatchPhotos
+            );
           }
         } catch (driveErr) {
           console.warn('Drive auto-sync on save error:', driveErr);
