@@ -22,7 +22,7 @@ import { googleDriveService } from './services/googleDriveService';
 import { googleSheetsService } from './services/googleSheetsService';
 
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport } from './types';
-import { RefreshCw, Database, FileSpreadsheet } from 'lucide-react';
+import { RefreshCw, Database, FileSpreadsheet, AlertTriangle, ExternalLink } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('jobs');
@@ -35,6 +35,7 @@ export const App: React.FC = () => {
   const [masterSheetUrl, setMasterSheetUrl] = useState<string>(() => googleSheetsService.getMasterSheetUrl());
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const [sheetsFeedback, setSheetsFeedback] = useState<string | null>(null);
+  const [sheetsApiDisabledUrl, setSheetsApiDisabledUrl] = useState<string | null>(null);
 
   // Core Data Lists
   const [complianceJobs, setComplianceJobs] = useState<ComplianceJob[]>([]);
@@ -319,11 +320,25 @@ export const App: React.FC = () => {
       setMasterSheetUrl(info.webViewLink);
       window.open(info.webViewLink, '_blank');
       setSheetsFeedback('✓ Master Database opened in Google Sheets (AVV Mate Drive)');
+      setSheetsApiDisabledUrl(null);
       setTimeout(() => setSheetsFeedback(null), 5000);
     } catch (err: any) {
       console.error('Error opening master sheet:', err);
-      setSheetsFeedback(`Notice: ${err.message || 'Opening AVV Mate Drive folder'}`);
-      window.open('https://drive.google.com/drive/folders/12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5', '_blank');
+      const isApiDisabled =
+        Boolean(err.enableApiUrl) ||
+        (err.message && (
+          err.message.includes('sheets.googleapis.com') ||
+          err.message.includes('SERVICE_DISABLED') ||
+          err.message.includes('Google Sheets API has not been used')
+        ));
+
+      if (isApiDisabled) {
+        setSheetsApiDisabledUrl('https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136');
+        setSheetsFeedback(null);
+      } else {
+        setSheetsFeedback(`Notice: ${err.message || 'Opening AVV Mate Drive folder'}`);
+        window.open('https://drive.google.com/drive/folders/12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5', '_blank');
+      }
     }
   };
 
@@ -339,11 +354,25 @@ export const App: React.FC = () => {
       );
       setMasterSheetUrl(result.spreadsheetUrl);
       setSheetsFeedback('✓ Synced all 4 tabs (Compliance_Jobs, Vehicles, RAW_Workshops, Model_Reports) in AVV Mate Master Database!');
+      setSheetsApiDisabledUrl(null);
       setTimeout(() => setSheetsFeedback(null), 6000);
     } catch (err: any) {
-      console.error(err);
-      setSheetsFeedback(`Sheet sync failed: ${err.message || 'Error'}`);
-      setTimeout(() => setSheetsFeedback(null), 6000);
+      console.error('Error syncing to master sheet:', err);
+      const isApiDisabled =
+        Boolean(err.enableApiUrl) ||
+        (err.message && (
+          err.message.includes('sheets.googleapis.com') ||
+          err.message.includes('SERVICE_DISABLED') ||
+          err.message.includes('Google Sheets API has not been used')
+        ));
+
+      if (isApiDisabled) {
+        setSheetsApiDisabledUrl('https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136');
+        setSheetsFeedback(null);
+      } else {
+        setSheetsFeedback(`Sheet sync failed: ${err.message || 'Error'}`);
+        setTimeout(() => setSheetsFeedback(null), 6000);
+      }
     } finally {
       setIsSyncingSheets(false);
     }
@@ -442,6 +471,50 @@ export const App: React.FC = () => {
         isConnected={isConnected}
         isDriveConnected={isDriveConnected}
       />
+
+      {/* Google Sheets API Enablement Action Banner */}
+      {sheetsApiDisabledUrl && (
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-4 w-full animate-in fade-in">
+          <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-rose-100 rounded-lg text-rose-700 shrink-0 mt-0.5">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-rose-950 flex items-center gap-2">
+                  <span>Action Required: Enable Google Sheets API</span>
+                  <span className="text-[10px] bg-rose-200 text-rose-900 px-2 py-0.5 rounded-full font-mono font-semibold">Project 43512054136</span>
+                </h4>
+                <p className="text-xs text-rose-800 mt-1 leading-relaxed">
+                  Google Drive API is connected, but Google Cloud requires <strong>Google Sheets API</strong> to be switched on in your project before AVV Mate can create and sync your 4 Master Database tabs. It takes 1 click and is completely free.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+              <a
+                href={sheetsApiDisabledUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-sm transition"
+              >
+                <span>Enable Google Sheets API</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <button
+                onClick={() => {
+                  setSheetsApiDisabledUrl(null);
+                  handleSyncAllToSheets();
+                }}
+                disabled={isSyncingSheets}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-rose-100 hover:bg-rose-200 text-rose-900 text-xs font-semibold rounded-lg transition"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+                <span>Retry Sync</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sheets Sync & Notification Banner */}
       {sheetsFeedback && (

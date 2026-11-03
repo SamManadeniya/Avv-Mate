@@ -558,6 +558,9 @@ class GoogleDriveService {
 
     if (!createRes.ok) {
       const errText = await createRes.text();
+      if (createRes.status === 401 || errText.includes('UNAUTHENTICATED') || errText.includes('invalid authentication credentials')) {
+        throw new Error('Google authorization expired (401). Please click "Drive Active" in the top bar to reconnect your Google account.');
+      }
       throw new Error(`Failed to create Drive folder "${name}": ${errText}`);
     }
 

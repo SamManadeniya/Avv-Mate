@@ -276,6 +276,51 @@ const findOrCreateFolderServer = async (
   };
 };
 
+const ensureMasterSheetTabs = async (token: string, spreadsheetId: string): Promise<void> => {
+  try {
+    const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!metaRes.ok) return;
+    const metaData = await metaRes.json();
+    const existingSheets = (metaData.sheets || []) as any[];
+    const existingTitles = existingSheets.map(s => s.properties?.title);
+
+    const requiredTabs = ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports'];
+    const missing = requiredTabs.filter(t => !existingTitles.includes(t));
+
+    if (missing.length > 0) {
+      const addRequests = missing.map(tabTitle => ({
+        addSheet: {
+          properties: {
+            title: tabTitle,
+            gridProperties: { frozenRowCount: 1 },
+          },
+        },
+      }));
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: addRequests }),
+      });
+    }
+
+    // If "Sheet1" exists and we have other tabs, delete Sheet1
+    const sheet1 = existingSheets.find(s => s.properties?.title === 'Sheet1');
+    if (sheet1 && (existingTitles.length + missing.length) > 1 && sheet1.properties?.sheetId !== undefined) {
+      try {
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requests: [{ deleteSheet: { sheetId: sheet1.properties.sheetId } }] }),
+        });
+      } catch (_) {}
+    }
+  } catch (err) {
+    console.warn('ensureMasterSheetTabs notice:', err);
+  }
+};
+
 export const handler = async (event: any) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -735,6 +780,17 @@ export const handler = async (event: any) => {
           webViewLink = createData.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
         } else {
           const errText = await createRes.text();
+          if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {
+            return {
+              statusCode: 403,
+              headers,
+              body: JSON.stringify({
+                error: 'Google Sheets API is disabled for Google Cloud Project 43512054136. Please enable it in Google Cloud Console.',
+                enableApiUrl: 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136',
+                apiDisabled: true,
+              }),
+            };
+          }
           return {
             statusCode: createRes.status,
             headers,
@@ -757,20 +813,8 @@ export const handler = async (event: any) => {
         }
       }
 
-      // 4. Try to add 4 tabs via Sheets API (if Sheets API is enabled, otherwise default Sheet1 exists)
-      try {
-        const addTabsReq = [
-          { addSheet: { properties: { title: 'Compliance_Jobs' } } },
-          { addSheet: { properties: { title: 'Vehicles' } } },
-          { addSheet: { properties: { title: 'RAW_Workshops' } } },
-          { addSheet: { properties: { title: 'Model_Reports' } } },
-        ];
-        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ requests: addTabsReq }),
-        });
-      } catch (_) {}
+      // 4. Ensure all 4 tabs exist and Sheet1 is cleanly removed
+      await ensureMasterSheetTabs(token, spreadsheetId);
 
       // 5. Initialize Header Rows
       const headersPayload = {
@@ -848,6 +892,9 @@ export const handler = async (event: any) => {
       if (!spreadsheetId) {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'spreadsheetId is required' }) };
       }
+
+      // Ensure all 4 tabs exist before writing values into them
+      await ensureMasterSheetTabs(token, spreadsheetId);
 
       const updateData: Array<{ range: string; values: any[][] }> = [];
 
@@ -992,6 +1039,17 @@ export const handler = async (event: any) => {
 
         if (!writeRes.ok) {
           const errText = await writeRes.text();
+          if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {
+            return {
+              statusCode: 403,
+              headers,
+              body: JSON.stringify({
+                error: 'Google Sheets API is disabled for Google Cloud Project 43512054136. Please enable it in Google Cloud Console.',
+                enableApiUrl: 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136',
+                apiDisabled: true,
+              }),
+            };
+          }
           return { statusCode: writeRes.status, headers, body: JSON.stringify({ error: `Failed to write sheet values: ${errText}` }) };
         }
       }
@@ -1017,6 +1075,17 @@ export const handler = async (event: any) => {
       const readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
       if (!readRes.ok) {
         const errText = await readRes.text();
+        if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {
+          return {
+            statusCode: 403,
+            headers,
+            body: JSON.stringify({
+              error: 'Google Sheets API is disabled for Google Cloud Project 43512054136. Please enable it in Google Cloud Console.',
+              enableApiUrl: 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136',
+              apiDisabled: true,
+            }),
+          };
+        }
         return { statusCode: readRes.status, headers, body: JSON.stringify({ error: `Failed to read spreadsheet: ${errText}` }) };
       }
 

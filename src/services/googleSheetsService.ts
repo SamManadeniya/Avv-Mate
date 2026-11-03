@@ -111,8 +111,18 @@ class GoogleSheetsService {
           localStorage.setItem(this.STORAGE_KEY_URL, info.webViewLink);
           return info;
         }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson.enableApiUrl || errJson.apiDisabled) {
+          const err: any = new Error(errJson.error || 'Google Sheets API is disabled in Google Cloud Console.');
+          err.enableApiUrl = errJson.enableApiUrl || 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136';
+          throw err;
+        }
       }
     } catch (err: any) {
+      if (err.enableApiUrl) {
+        throw err;
+      }
       console.warn('Serverless master spreadsheet check failed, trying direct Drive API:', err);
     }
 
@@ -222,7 +232,11 @@ class GoogleSheetsService {
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error || `Failed to sync tables to Google Sheets (${res.status})`);
+      const err: any = new Error(errJson.error || `Failed to sync tables to Google Sheets (${res.status})`);
+      if (errJson.enableApiUrl || errJson.apiDisabled || (err.message && err.message.includes('sheets.googleapis.com'))) {
+        err.enableApiUrl = errJson.enableApiUrl || 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136';
+      }
+      throw err;
     }
 
     const data = await res.json();
@@ -261,7 +275,11 @@ class GoogleSheetsService {
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson.error || `Failed to read tables from Google Sheets (${res.status})`);
+      const err: any = new Error(errJson.error || `Failed to read tables from Google Sheets (${res.status})`);
+      if (errJson.enableApiUrl || errJson.apiDisabled || (err.message && err.message.includes('sheets.googleapis.com'))) {
+        err.enableApiUrl = errJson.enableApiUrl || 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136';
+      }
+      throw err;
     }
 
     const resData = await res.json();
