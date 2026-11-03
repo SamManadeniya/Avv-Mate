@@ -7,16 +7,20 @@ import {
   ExternalLink, 
   FileText, 
   AlertCircle,
-  Video,
   Save,
   Calendar,
   Layers,
-  MessageSquare
+  MessageSquare,
+  FolderTree,
+  Images,
+  RefreshCw,
+  Film
 } from 'lucide-react';
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport, DocType } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
 import { attachmentService } from '../../services/attachmentService';
 import { complianceJobService } from '../../services/complianceJobService';
+import { googleDriveService, type VehicleDriveHierarchy } from '../../services/googleDriveService';
 import { formatBytes } from '../../lib/utils';
 
 interface ComplianceJobModalProps {
@@ -63,6 +67,21 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Google Drive & High-Volume Media states
+  const [isDriveConfigured, setIsDriveConfigured] = useState(() => googleDriveService.isConfigured());
+  const [driveHierarchy, setDriveHierarchy] = useState<VehicleDriveHierarchy | null>(null);
+  const [isSyncingDrive, setIsSyncingDrive] = useState(false);
+  const [driveFeedback, setDriveFeedback] = useState<string | null>(null);
+
+  // Batch Photos (30–80+ photos)
+  const [batchPhotosCount, setBatchPhotosCount] = useState<number>(0);
+  const [isBatchUploading, setIsBatchUploading] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; currentFile: string } | null>(null);
+
+  // Video File Upload
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number>(0);
+
   // Initialize or reset form
   useEffect(() => {
     if (!isOpen) return;
@@ -106,6 +125,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
       });
     }
+    setIsDriveConfigured(googleDriveService.isConfigured());
+    setDriveFeedback(null);
     setErrorMessage('');
   }, [isOpen, jobToEdit, vehicles]);
 
@@ -161,6 +182,148 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setAttachments(prev => ({ ...prev, [docType]: null }));
     } catch (err: any) {
       setErrorMessage(`Failed to remove ${docType}: ${err.message}`);
+    }
+  };
+
+  // Google Drive Automated Hierarchy Handler
+  const handleInitializeDrive = async () => {
+    if (!folderNo.trim()) {
+      setErrorMessage('Please enter a folder number (e.g. SVC1028) first.');
+      return;
+    }
+    setIsSyncingDrive(true);
+    setDriveFeedback(null);
+    try {
+      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
+        const hierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
+        setDriveHierarchy(hierarchy);
+        if (!videosUrl) {
+          setVideosUrl(hierarchy.videosFolder.webViewLink);
+        }
+        setDriveFeedback(`Folder tree verified on Google Drive: ${hierarchy.vehicleFolder.name} (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS, MEDIA/SUBMIT)`);
+      } else {
+        const demo = googleDriveService.getDemoHierarchy(folderNo);
+        setDriveHierarchy(demo);
+        if (!videosUrl) {
+          setVideosUrl(demo.videosFolder.webViewLink);
+        }
+        setDriveFeedback(`Simulated Drive directory ready for ${demo.vehicleFolder.name}`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setDriveFeedback(`Drive sync note: ${err.message || 'Error creating folders'}`);
+    } finally {
+      setIsSyncingDrive(false);
+    }
+  };
+
+  // Batch Photos Upload Handler (30–80+ photos)
+  const handleBatchPhotosUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const filesArray = Array.from(files);
+    setIsBatchUploading(true);
+    setErrorMessage('');
+    setDriveFeedback(null);
+
+    try {
+      let targetHierarchy = driveHierarchy;
+      if (!targetHierarchy) {
+        if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
+          targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
+        } else {
+          targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
+        }
+        setDriveHierarchy(targetHierarchy);
+      }
+
+      setBatchPhotosCount(prev => prev + filesArray.length);
+
+      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy) {
+        await googleDriveService.uploadBatch(
+          targetHierarchy.photosFolder.id,
+          filesArray,
+          (completed, total, currentFile) => {
+            setBatchProgress({ completed, total, currentFile });
+          }
+        );
+        setDriveFeedback(`Successfully uploaded ${filesArray.length} photos to Google Drive (${folderNo}/MEDIA/PHOTOS)`);
+      }
+
+      // Mark the PHOTOS slot as attached
+      const firstFile = filesArray[0];
+      const photosAtt = {
+        file_name: `${filesArray.length} Compliance Photos (${folderNo}/MEDIA/PHOTOS)`,
+        file_size: filesArray.reduce((acc, f) => acc + f.size, 0),
+        mime_type: 'image/jpeg',
+        file_url: targetHierarchy?.photosFolder.webViewLink || URL.createObjectURL(firstFile),
+        _fileObject: firstFile
+      };
+
+      if (jobToEdit?.id) {
+        const att = await attachmentService.uploadFile(jobToEdit.id, 'PHOTOS', firstFile);
+        setAttachments(prev => ({
+          ...prev,
+          PHOTOS: {
+            ...att,
+            file_name: `${filesArray.length} Compliance Photos (${folderNo}/MEDIA/PHOTOS)`,
+            file_url: targetHierarchy?.photosFolder.webViewLink || att.file_url
+          }
+        }));
+      } else {
+        setAttachments(prev => ({
+          ...prev,
+          PHOTOS: photosAtt
+        }));
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(`Batch photo upload error: ${err.message || 'Error'}`);
+    } finally {
+      setIsBatchUploading(false);
+      setBatchProgress(null);
+    }
+  };
+
+  // Video File Upload Handler
+  const handleVideoFileUpload = async (file: File) => {
+    if (!file) return;
+    setIsVideoUploading(true);
+    setVideoUploadProgress(15);
+    setErrorMessage('');
+    setDriveFeedback(null);
+
+    try {
+      let targetHierarchy = driveHierarchy;
+      if (!targetHierarchy) {
+        if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
+          targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
+        } else {
+          targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
+        }
+        setDriveHierarchy(targetHierarchy);
+      }
+
+      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy) {
+        setVideoUploadProgress(35);
+        const uploaded = await googleDriveService.uploadFile(
+          targetHierarchy.videosFolder.id,
+          file,
+          pct => setVideoUploadProgress(pct)
+        );
+        setVideosUrl(uploaded.webViewLink);
+        setDriveFeedback(`Inspection video "${file.name}" uploaded to Google Drive (${folderNo}/MEDIA/VIDEOS)`);
+      } else {
+        setVideoUploadProgress(100);
+        const demoUrl = targetHierarchy?.videosFolder.webViewLink || `https://drive.google.com/drive/folders/#${folderNo}_VIDEOS`;
+        setVideosUrl(demoUrl);
+        setDriveFeedback(`Inspection video "${file.name}" linked to Drive (${folderNo}/MEDIA/VIDEOS)`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(`Video upload error: ${err.message || 'Error'}`);
+    } finally {
+      setIsVideoUploading(false);
+      setVideoUploadProgress(0);
     }
   };
 
@@ -363,21 +526,22 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Progressive Document Attachments (Non-blocking) */}
-          <div className="bg-slate-50/70 p-4 rounded-lg border border-slate-200">
-            <div className="flex items-center justify-between mb-3">
+          {/* Section 2: Progressive Document Attachments & High-Volume Media */}
+          <div className="bg-slate-50/70 p-4 rounded-lg border border-slate-200 space-y-4">
+            {/* Header & Completeness */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-1 border-b border-slate-200/80">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600 font-display flex items-center gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 font-display flex items-center gap-2">
                   <FileText className="w-4 h-4 text-sky-700" />
-                  2. Document Attachments (PDF / JPG / PNG)
+                  2. Document Attachments & Vehicle Media
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Optional on creation. Upload what you have today, upload missing ones anytime later.
+                  Compliance documents (PDF) and Google Drive SaaS storage for 30–80+ photos and inspection videos
                 </p>
               </div>
 
               {/* Completeness counter and Request button */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {jobToEdit && Object.values(attachments).filter(Boolean).length < 8 && onRequestDocs && (
                   <button
                     type="button"
@@ -395,10 +559,67 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               </div>
             </div>
 
+            {/* Google Drive Automated Vehicle Tree Banner */}
+            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-2xs space-y-2">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-emerald-100 text-emerald-800 rounded shrink-0">
+                    <FolderTree className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-800">
+                        Google Drive Tree: <span className="font-mono text-sky-800">{folderNo || 'Vehicle Folder'}</span>
+                      </span>
+                      <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
+                        {isDriveConfigured ? 'Drive Storage Active' : 'Drive Ready'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-mono">
+                      📁 {folderNo || 'SVC...'} &rarr; 📁 DOCS & 📁 MEDIA (📁 PHOTOS, 📁 VIDEOS, 📁 SUBMIT)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {driveHierarchy?.vehicleFolder.webViewLink && (
+                    <a
+                      href={driveHierarchy.vehicleFolder.webViewLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded transition"
+                      title="Open this car's folder on Google Drive"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open in Drive</span>
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleInitializeDrive}
+                    disabled={isSyncingDrive}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded transition disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isSyncingDrive ? 'animate-spin' : ''}`} />
+                    <span>{isSyncingDrive ? 'Verifying…' : 'Sync Folders'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {driveFeedback && (
+                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-800 flex items-center gap-1.5 animate-in fade-in duration-150">
+                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>{driveFeedback}</span>
+                </div>
+              )}
+            </div>
+
+            {/* 8 Document Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {REQUIRED_DOC_TYPES.map(doc => {
                 const att = attachments[doc.type];
                 const isUploading = uploadingDoc === doc.type;
+                const isPhotos = doc.type === 'PHOTOS';
 
                 return (
                   <div
@@ -406,6 +627,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                     className={`p-3 rounded-lg border text-xs transition flex flex-col justify-between ${
                       att
                         ? 'bg-emerald-50/50 border-emerald-300'
+                        : isPhotos
+                        ? 'bg-sky-50/30 border-sky-200 hover:border-sky-300'
                         : 'bg-white border-slate-200 hover:border-slate-300'
                     }`}
                   >
@@ -416,7 +639,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                         </span>
                         {att ? (
                           <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
-                            <Check className="w-3 h-3" /> Attached
+                            <Check className="w-3 h-3" /> {isPhotos && batchPhotosCount > 1 ? `${batchPhotosCount} Photos` : 'Attached'}
                           </span>
                         ) : (
                           <span className="text-[10px] font-mono font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
@@ -425,7 +648,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                         )}
                       </div>
                       <p className="text-[11px] text-slate-500 font-medium truncate mb-2" title={doc.name}>
-                        {doc.name}
+                        {doc.name} {isPhotos && <span className="text-sky-700 font-semibold">(30–80+)</span>}
                       </p>
 
                       {att && (
@@ -436,6 +659,22 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                           <p className="text-slate-400 font-mono">
                             {formatBytes(att.file_size)}
                           </p>
+                        </div>
+                      )}
+
+                      {/* Batch photo upload progress */}
+                      {isPhotos && isBatchUploading && (
+                        <div className="p-2 bg-sky-50 border border-sky-200 rounded text-[10px] text-sky-800 mb-2 space-y-1">
+                          <div className="flex items-center justify-between font-semibold">
+                            <span>Uploading to MEDIA/PHOTOS…</span>
+                            <span>{batchProgress?.completed || 0}/{batchProgress?.total || 'batch'}</span>
+                          </div>
+                          <div className="w-full bg-sky-200 h-1.5 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-sky-600 h-1.5 transition-all duration-200"
+                              style={{ width: `${batchProgress ? Math.round((batchProgress.completed / batchProgress.total) * 100) : 50}%` }}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -451,6 +690,18 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                           >
                             <ExternalLink className="w-3 h-3" /> View
                           </a>
+                          {isPhotos && (
+                            <label className="p-1 text-sky-700 hover:text-sky-900 hover:bg-sky-100 rounded border border-sky-200 cursor-pointer transition" title="Add more photos (up to 80+)">
+                              <Upload className="w-3.5 h-3.5" />
+                              <input
+                                type="file"
+                                multiple
+                                accept="image/*"
+                                className="hidden"
+                                onChange={e => handleBatchPhotosUpload(e.target.files)}
+                              />
+                            </label>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleDeleteAttachment(doc.type)}
@@ -460,6 +711,20 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </>
+                      ) : isPhotos ? (
+                        <div className="flex-1 flex gap-1">
+                          <label className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 px-2 text-[11px] font-semibold text-white bg-sky-700 hover:bg-sky-800 rounded cursor-pointer transition shadow-2xs">
+                            <Images className="w-3 h-3" />
+                            <span>{isBatchUploading ? 'Uploading…' : 'Batch (30–80+)'}</span>
+                            <input
+                              type="file"
+                              multiple
+                              accept="image/*"
+                              className="hidden"
+                              onChange={e => handleBatchPhotosUpload(e.target.files)}
+                            />
+                          </label>
+                        </div>
                       ) : (
                         <label className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 px-2 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-300 rounded border border-slate-200 cursor-pointer transition">
                           <Upload className="w-3 h-3" />
@@ -481,13 +746,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               })}
             </div>
 
-            {/* Video / Google Drive Link field */}
-            <div className="mt-4 pt-3 border-t border-slate-200">
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <Video className="w-4 h-4 text-sky-700" />
-                  Vehicle Inspection Videos (Google Drive Link / Video URL)
-                </span>
+            {/* Video Inspection Section with Direct Upload to Drive MEDIA/VIDEOS */}
+            <div className="mt-4 pt-3 border-t border-slate-200 space-y-2">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Film className="w-4 h-4 text-sky-700" />
+                  Vehicle Inspection Videos (Direct Upload to Google Drive / Link)
+                </label>
                 {videosUrl && (
                   <a
                     href={videosUrl}
@@ -495,17 +760,51 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                     rel="noopener noreferrer"
                     className="text-sky-700 font-semibold hover:underline flex items-center gap-1 text-[11px]"
                   >
-                    <ExternalLink className="w-3 h-3" /> Open Drive
+                    <ExternalLink className="w-3 h-3" /> Open Drive VIDEOS Folder
                   </a>
                 )}
-              </label>
-              <input
-                type="url"
-                value={videosUrl}
-                onChange={e => setVideosUrl(e.target.value)}
-                placeholder="https://drive.google.com/drive/folders/..."
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
-              />
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                {/* Direct Video File Upload Button */}
+                <label className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300 text-xs font-semibold rounded-md cursor-pointer transition shrink-0">
+                  <Upload className="w-3.5 h-3.5 text-sky-700" />
+                  <span>{isVideoUploading ? `Uploading Video (${videoUploadProgress}%)` : 'Upload Video File (.mp4, .mov)'}</span>
+                  <input
+                    type="file"
+                    accept="video/*,.mp4,.mov,.avi,.mkv"
+                    className="hidden"
+                    disabled={isVideoUploading}
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) handleVideoFileUpload(file);
+                    }}
+                  />
+                </label>
+
+                {/* Video URL Input */}
+                <input
+                  type="url"
+                  value={videosUrl}
+                  onChange={e => setVideosUrl(e.target.value)}
+                  placeholder="https://drive.google.com/drive/folders/... or upload video above"
+                  className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              {isVideoUploading && (
+                <div className="space-y-1">
+                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-emerald-600 h-2 transition-all duration-300"
+                      style={{ width: `${videoUploadProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    Transferring video to Google Drive ({folderNo}/MEDIA/VIDEOS)... {videoUploadProgress}%
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

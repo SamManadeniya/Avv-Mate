@@ -12,11 +12,13 @@ import { WorkshopModal } from './components/modals/WorkshopModal';
 import { ModelReportModal } from './components/modals/ModelReportModal';
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
 import { RequestDocsModal } from './components/modals/RequestDocsModal';
+import { GoogleDriveConfigModal } from './components/modals/GoogleDriveConfigModal';
 
 import { complianceJobService } from './services/complianceJobService';
 import { vehicleService } from './services/vehicleService';
 import { workshopService } from './services/workshopService';
 import { modelReportService } from './services/modelReportService';
+import { googleDriveService } from './services/googleDriveService';
 
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport } from './types';
 import { RefreshCw, Database } from 'lucide-react';
@@ -49,6 +51,20 @@ export const App: React.FC = () => {
   // Request Docs Modal State
   const [isRequestDocsOpen, setIsRequestDocsOpen] = useState(false);
   const [jobForDocRequest, setJobForDocRequest] = useState<ComplianceJob | null>(null);
+
+  // Google Drive Config Modal State
+  const [isDriveConfigOpen, setIsDriveConfigOpen] = useState(false);
+  const [isDriveConnected, setIsDriveConnected] = useState(() => googleDriveService.isConfigured());
+
+  useEffect(() => {
+    const handleConfigChange = () => {
+      setIsDriveConnected(googleDriveService.isConfigured());
+    };
+    window.addEventListener('avv_mate_drive_config_updated', handleConfigChange);
+    return () => {
+      window.removeEventListener('avv_mate_drive_config_updated', handleConfigChange);
+    };
+  }, []);
 
   // Delete State
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -231,6 +247,7 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         onNewJobClick={handleNewJob}
+        onDriveConfigClick={() => setIsDriveConfigOpen(true)}
         counts={{
           jobs: complianceJobs.length,
           vehicles: vehicles.length,
@@ -238,6 +255,7 @@ export const App: React.FC = () => {
           reports: modelReports.length,
         }}
         isConnected={isConnected}
+        isDriveConnected={isDriveConnected}
       />
 
       {/* Database Setup Alert Banner if tables need migration */}
@@ -373,6 +391,12 @@ export const App: React.FC = () => {
         title={deleteTarget?.title || 'Delete Item'}
         message={`Are you sure you want to delete ${deleteTarget?.name}? This action cannot be undone.`}
         isDeleting={isDeleting}
+      />
+
+      <GoogleDriveConfigModal
+        isOpen={isDriveConfigOpen}
+        onClose={() => setIsDriveConfigOpen(false)}
+        onConfigSaved={() => setIsDriveConnected(googleDriveService.isConfigured())}
       />
     </div>
   );

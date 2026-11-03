@@ -6,7 +6,8 @@ import {
   ShieldCheck, 
   Plus, 
   CheckCircle, 
-  AlertCircle
+  AlertCircle,
+  HardDrive
 } from 'lucide-react';
 
 export type ActiveTab = 'jobs' | 'vehicles' | 'workshops' | 'reports';
@@ -15,6 +16,7 @@ interface NavbarProps {
   activeTab: ActiveTab;
   onTabChange: (tab: ActiveTab) => void;
   onNewJobClick: () => void;
+  onDriveConfigClick?: () => void;
   counts: {
     jobs: number;
     vehicles: number;
@@ -22,14 +24,17 @@ interface NavbarProps {
     reports: number;
   };
   isConnected: boolean;
+  isDriveConnected?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onTabChange,
   onNewJobClick,
+  onDriveConfigClick,
   counts,
   isConnected,
+  isDriveConnected = false,
 }) => {
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; count: number }[] = [
     {
@@ -117,6 +122,27 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Actions & Connection Status */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Google Drive SaaS Integration Pill */}
+            {onDriveConfigClick && (
+              <button
+                type="button"
+                onClick={onDriveConfigClick}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium border transition cursor-pointer ${
+                  isDriveConnected
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-2xs'
+                    : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+                title="Configure Google Drive storage for high-volume photos (30-80+) & videos"
+              >
+                <HardDrive className={`w-3.5 h-3.5 ${isDriveConnected ? 'text-emerald-600' : 'text-slate-500'}`} />
+                <span className="hidden sm:inline">{isDriveConnected ? 'Drive Connected' : 'Google Drive'}</span>
+                <span className="sm:hidden">Drive</span>
+                {isDriveConnected && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse hidden sm:inline-block" />
+                )}
+              </button>
+            )}
+
             <div
               className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-mono font-medium ${
                 isConnected
