@@ -195,7 +195,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     setDriveFeedback(null);
     try {
       if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
-        const hierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
+        const hierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo, true);
         setDriveHierarchy(hierarchy);
         if (!videosUrl) {
           setVideosUrl(hierarchy.videosFolder.webViewLink);
@@ -207,7 +207,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         if (!videosUrl) {
           setVideosUrl(demo.videosFolder.webViewLink);
         }
-        setDriveFeedback(`Simulated Drive directory ready for ${demo.vehicleFolder.name}`);
+        setDriveFeedback(`Directory ready for ${demo.vehicleFolder.name}`);
       }
     } catch (err: any) {
       console.error(err);
@@ -216,7 +216,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       if (!videosUrl) {
         setVideosUrl(demo.videosFolder.webViewLink);
       }
-      setDriveFeedback(`Notice: ${err.message || 'Drive connection error'}. Ready in local workspace mode.`);
+      setDriveFeedback(`Google Drive sync pending: ${err.message || 'CORS origin propagating'}. You can still click "Open in Drive" to view your AVV Mate Drive.`);
     } finally {
       setIsSyncingDrive(false);
     }

@@ -522,17 +522,28 @@ class GoogleDriveService {
    *         ├── 📁 VIDEOS
    *         └── 📁 SUBMIT
    */
-  public async ensureVehicleFolderHierarchy(folderNo: string): Promise<VehicleDriveHierarchy> {
+  public async ensureVehicleFolderHierarchy(folderNo: string, forceRefresh = false): Promise<VehicleDriveHierarchy> {
     const cleanFolder = folderNo.toUpperCase().trim();
     if (!cleanFolder) throw new Error('Vehicle folder number (e.g. SVC1028) is required.');
 
     // Check localStorage cache first
     const cacheKey = `${FOLDER_CACHE_KEY_PREFIX}${cleanFolder}`;
-    const cached = localStorage.getItem(cacheKey);
-    if (cached) {
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          // Only use cache if it is a REAL Google Drive folder (not a simulated dummy id with #)
+          if (parsed.vehicleFolder?.id && !parsed.vehicleFolder.id.startsWith('drive_') && !parsed.vehicleFolder.webViewLink?.includes('#')) {
+            return parsed;
+          } else {
+            localStorage.removeItem(cacheKey);
+          }
+        } catch (_) {}
+      }
+    } else {
       try {
-        const parsed = JSON.parse(cached);
-        if (parsed.vehicleFolder?.id) return parsed;
+        localStorage.removeItem(cacheKey);
       } catch (_) {}
     }
 
