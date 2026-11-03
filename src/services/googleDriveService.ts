@@ -740,6 +740,71 @@ class GoogleDriveService {
   }
 
   /**
+   * Automatically synchronizes all job document attachments (PDFs) into the vehicle's DOCS folder on Google Drive
+   */
+  public async syncJobAttachmentsToDrive(
+    folderNo: string,
+    attachments: Array<{ name: string; url?: string; mimeType?: string; fileObject?: File }>,
+    onProgress?: (current: string, completed: number, total: number) => void
+  ): Promise<{ uploadedCount: number; errors: string[] }> {
+    const hierarchy = await this.ensureVehicleFolderHierarchy(folderNo);
+    const docsFolderId = hierarchy.docsFolder.id;
+    const token = this.config.accessToken;
+    const errors: string[] = [];
+    let uploadedCount = 0;
+
+    // Filter out URL-based files and local files
+    const urlFiles = attachments
+      .filter(a => a.url && !a.fileObject)
+      .map(a => ({
+        name: a.name,
+        url: a.url!,
+        mimeType: a.mimeType,
+      }));
+
+    // 1. Try serverless bulk sync for existing remote files
+    if (urlFiles.length > 0 && token) {
+      try {
+        const proxyRes = await fetch('/api/drive-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'syncFilesFromUrls',
+            folderId: docsFolderId,
+            files: urlFiles,
+            accessToken: token,
+          }),
+        });
+        if (proxyRes.ok) {
+          const resData = await proxyRes.json();
+          if (resData.success && resData.uploaded) {
+            uploadedCount += resData.uploaded.length;
+          }
+        }
+      } catch (err: any) {
+        console.warn('[GoogleDrive] Serverless attachment sync skipped, using direct upload:', err);
+      }
+    }
+
+    // 2. Direct upload for local File objects or any files not handled by server
+    const localFiles = attachments.filter(a => a.fileObject);
+    for (let i = 0; i < localFiles.length; i++) {
+      const item = localFiles[i];
+      if (item.fileObject) {
+        onProgress?.(item.name, i + 1, localFiles.length);
+        try {
+          await this.uploadFile(docsFolderId, item.fileObject);
+          uploadedCount++;
+        } catch (e: any) {
+          errors.push(`${item.name}: ${e.message}`);
+        }
+      }
+    }
+
+    return { uploadedCount, errors };
+  }
+
+  /**
    * Demo / Simulated Drive Hierarchy for immediate testing without live API keys.
    * Generates valid Google Drive links pointing to the root parent folder if configured.
    */

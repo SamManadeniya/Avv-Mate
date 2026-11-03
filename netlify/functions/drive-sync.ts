@@ -4,11 +4,84 @@
  */
 
 interface RequestBody {
-  action: 'ensureVehicleFolderHierarchy' | 'testConnection';
+  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls';
   folderNo?: string;
   parentFolderId?: string;
+  folderId?: string;
+  files?: Array<{ name: string; url: string; mimeType?: string }>;
   accessToken?: string;
 }
+
+const uploadFileBufferServer = async (
+  token: string,
+  folderId: string,
+  fileName: string,
+  mimeType: string,
+  fileBytes: ArrayBuffer
+) => {
+  // Check if file with same name already exists in folder to avoid duplicates
+  try {
+    const checkQ = `'${folderId}' in parents and name='${fileName.replace(/'/g, "\\'")}' and trashed=false`;
+    const checkUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(checkQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name)`;
+    const checkRes = await fetch(checkUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (checkRes.ok) {
+      const existingData = await checkRes.json();
+      if (existingData.files && existingData.files.length > 0) {
+        return { id: existingData.files[0].id, name: fileName, alreadyExisted: true };
+      }
+    }
+  } catch (_) {}
+
+  // Construct multipart body
+  const boundary = '-------314159265358979323846';
+  const delimiter = `\r\n--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+
+  const metadata = {
+    name: fileName,
+    parents: [folderId],
+  };
+
+  const metadataPart = `${delimiter}Content-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`;
+  const mediaHeader = `${delimiter}Content-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`;
+
+  const encoder = new TextEncoder();
+  const metadataBuffer = encoder.encode(metadataPart);
+  const mediaHeaderBuffer = encoder.encode(mediaHeader);
+  const closeBuffer = encoder.encode(closeDelimiter);
+
+  const totalLength = metadataBuffer.byteLength + mediaHeaderBuffer.byteLength + fileBytes.byteLength + closeBuffer.byteLength;
+  const combined = new Uint8Array(totalLength);
+
+  let offset = 0;
+  combined.set(metadataBuffer, offset);
+  offset += metadataBuffer.byteLength;
+  combined.set(mediaHeaderBuffer, offset);
+  offset += mediaHeaderBuffer.byteLength;
+  combined.set(new Uint8Array(fileBytes), offset);
+  offset += fileBytes.byteLength;
+  combined.set(closeBuffer, offset);
+
+  const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink';
+  const uploadRes = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body: combined,
+  });
+
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text();
+    throw new Error(`Upload failed for ${fileName}: ${errText}`);
+  }
+
+  const data = await uploadRes.json();
+  return { id: data.id, name: data.name, webViewLink: data.webViewLink };
+};
 
 const findOrCreateFolderServer = async (
   token: string,
@@ -178,6 +251,48 @@ export const handler = async (event: any) => {
             videosFolder,
             submitFolder,
           },
+        }),
+      };
+    }
+
+    if (payload.action === 'syncFilesFromUrls') {
+      const folderId = payload.folderId;
+      const files = payload.files || [];
+      if (!folderId || files.length === 0) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Folder ID and files list required.' }),
+        };
+      }
+
+      const uploaded: any[] = [];
+      for (const f of files) {
+        try {
+          if (!f.url) continue;
+          const fileRes = await fetch(f.url);
+          if (!fileRes.ok) continue;
+          const bytes = await fileRes.arrayBuffer();
+          const item = await uploadFileBufferServer(
+            token,
+            folderId,
+            f.name,
+            f.mimeType || 'application/pdf',
+            bytes
+          );
+          uploaded.push(item);
+        } catch (uploadErr: any) {
+          console.error(`Failed uploading file ${f.name}:`, uploadErr);
+        }
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          uploaded,
+          count: uploaded.length,
         }),
       };
     }

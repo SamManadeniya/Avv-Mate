@@ -155,6 +155,17 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         // Direct upload to Supabase
         const att = await attachmentService.uploadFile(jobToEdit.id, docType, file);
         setAttachments(prev => ({ ...prev, [docType]: att }));
+
+        // Automatic mirror to Google Drive DOCS folder
+        if (googleDriveService.isConfigured()) {
+          googleDriveService.syncJobAttachmentsToDrive(folderNo, [{
+            name: file.name,
+            mimeType: file.type,
+            fileObject: file,
+          }]).then(() => {
+            setDriveFeedback(`✓ Auto-saved ${file.name} to Google Drive (${folderNo}/DOCS)`);
+          }).catch(e => console.warn('Background Drive upload:', e));
+        }
       } else {
         // If creating a brand new job before saving, store temporary local preview
         const tempAtt = {
@@ -200,7 +211,24 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         if (!videosUrl) {
           setVideosUrl(hierarchy.videosFolder.webViewLink);
         }
-        setDriveFeedback(`Folder tree verified on Google Drive: ${hierarchy.vehicleFolder.name} (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS, MEDIA/SUBMIT)`);
+
+        // Auto-push all existing attachments (the 7 PDFs) into Google Drive DOCS folder
+        const attList = Object.values(attachments)
+          .filter((att): att is NonNullable<typeof att> => Boolean(att && (att.file_url || att._fileObject)))
+          .map(att => ({
+            name: att.file_name,
+            url: att.file_url,
+            mimeType: att.mime_type,
+            fileObject: att._fileObject,
+          }));
+
+        if (attList.length > 0) {
+          setDriveFeedback(`Pushing ${attList.length} compliance documents to Google Drive (${folderNo}/DOCS)...`);
+          const syncResult = await googleDriveService.syncJobAttachmentsToDrive(folderNo, attList);
+          setDriveFeedback(`✓ Verified Google Drive tree & uploaded ${syncResult.uploadedCount} compliance documents into ${folderNo}/DOCS!`);
+        } else {
+          setDriveFeedback(`✓ Folder tree verified on Google Drive: ${hierarchy.vehicleFolder.name} (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS, MEDIA/SUBMIT)`);
+        }
       } else {
         const demo = googleDriveService.getDemoHierarchy(folderNo);
         setDriveHierarchy(demo);
@@ -380,6 +408,25 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             await attachmentService.uploadFile(savedJob.id, docKey as DocType, att._fileObject);
           }
         }
+      }
+
+      // Automatically create Drive folder tree and push attachments on save
+      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
+        const cleanNo = folderNo.toUpperCase().trim();
+        const attList = Object.values(attachments)
+          .filter((att): att is NonNullable<typeof att> => Boolean(att && (att.file_url || att._fileObject)))
+          .map(att => ({
+            name: att.file_name,
+            url: att.file_url,
+            mimeType: att.mime_type,
+            fileObject: att._fileObject,
+          }));
+
+        googleDriveService.ensureVehicleFolderHierarchy(cleanNo).then(async () => {
+          if (attList.length > 0) {
+            await googleDriveService.syncJobAttachmentsToDrive(cleanNo, attList);
+          }
+        }).catch(e => console.warn('Drive auto-sync on save:', e));
       }
 
       onSaved();
