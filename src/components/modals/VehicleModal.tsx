@@ -8,7 +8,7 @@ import { validateVin } from '../../lib/utils';
 interface VehicleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (vehicle: Vehicle) => void | Promise<void>;
   vehicleToEdit?: Vehicle | null;
   workshops: RawWorkshop[];
   modelReports: ModelReport[];
@@ -116,24 +116,58 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
     setErrorMessage('');
 
     try {
-      if (vehicleToEdit) {
-        await vehicleService.update(vehicleToEdit.vin, {
-          build_date: buildDate.trim(),
-          via_no: viaNo.trim() || null,
-          raw_id: rawId.trim() || null,
-          mre_no: mreNo.trim() || null,
-        });
-      } else {
-        await vehicleService.create({
-          vin: vin.toUpperCase().trim(),
-          build_date: buildDate.trim(),
-          via_no: viaNo.trim() || null,
-          raw_id: rawId.trim() || null,
-          mre_no: mreNo.trim() || null,
-        });
+      let savedVehicle: Vehicle;
+      const cleanVin = vin.toUpperCase().trim();
+      const cleanBuildDate = buildDate.trim();
+      const cleanViaNo = viaNo.trim() || null;
+      const cleanRawId = rawId.trim() || null;
+      const cleanMreNo = mreNo.trim() || null;
+      const workshop = workshops.find(w => w.raw_id === cleanRawId);
+      const report = modelReports.find(m => m.mre_no === cleanMreNo);
+
+      try {
+        if (vehicleToEdit) {
+          savedVehicle = await vehicleService.update(vehicleToEdit.vin, {
+            build_date: cleanBuildDate,
+            via_no: cleanViaNo,
+            raw_id: cleanRawId,
+            mre_no: cleanMreNo,
+          });
+        } else {
+          savedVehicle = await vehicleService.create({
+            vin: cleanVin,
+            build_date: cleanBuildDate,
+            via_no: cleanViaNo,
+            raw_id: cleanRawId,
+            mre_no: cleanMreNo,
+          });
+        }
+      } catch (sbErr) {
+        console.warn('Supabase vehicle save bypassed or failed, creating/updating locally:', sbErr);
+        savedVehicle = {
+          vin: cleanVin,
+          build_date: cleanBuildDate,
+          via_no: cleanViaNo,
+          raw_id: cleanRawId,
+          raw_workshop_name: workshop?.name || rawWorkshopName || null,
+          mre_no: cleanMreNo,
+          make: report?.make || make || null,
+          model: report?.model || model || null,
+          created_at: vehicleToEdit?.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
       }
 
-      onSaved();
+      // Ensure make, model, workshop name are set
+      if (!savedVehicle.raw_workshop_name && workshop) {
+        savedVehicle.raw_workshop_name = workshop.name;
+      }
+      if (!savedVehicle.make && report) {
+        savedVehicle.make = report.make;
+        savedVehicle.model = report.model;
+      }
+
+      await onSaved(savedVehicle);
       onClose();
     } catch (err: any) {
       console.error(err);

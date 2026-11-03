@@ -28,6 +28,7 @@ interface NavbarProps {
     reports: number;
   };
   isDriveConnected?: boolean;
+  isSheetsPrimary?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -41,6 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   isSyncingSheets = false,
   counts,
   isDriveConnected = false,
+  isSheetsPrimary = false,
 }) => {
   const navItems: { id: ActiveTab; label: string; icon: React.ReactNode; count: number }[] = [
     {
@@ -141,7 +143,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 title="Configure Google Drive storage for high-volume photos (30-80+) & videos"
               >
                 <HardDrive className={`w-3.5 h-3.5 ${isDriveConnected ? 'text-emerald-600' : 'text-slate-500'}`} />
-                <span className="hidden sm:inline">{isDriveConnected ? 'Drive Active' : 'Google Drive'}</span>
+                <span className="hidden sm:inline">
+                  {isSheetsPrimary ? 'Sheets DB Active' : (isDriveConnected ? 'Drive Active' : 'Google Drive')}
+                </span>
                 <span className="sm:hidden">Drive</span>
                 {isDriveConnected && (
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse hidden sm:inline-block" />

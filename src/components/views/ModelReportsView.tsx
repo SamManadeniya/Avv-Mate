@@ -50,6 +50,10 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
     exportService.exportToCsv('model_reports', data);
   };
 
+  const handleExportPdf = () => {
+    exportService.exportModelReportsPdf(filteredReports);
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
       {/* Header Toolbar */}
@@ -75,6 +79,14 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export CSV</span>
+          </button>
+
+          <button
+            onClick={handleExportPdf}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-md shadow-2xs transition"
+          >
+            <FileText className="w-3.5 h-3.5 text-red-600" />
+            <span>Export PDF</span>
           </button>
 
           <button

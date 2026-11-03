@@ -97,21 +97,14 @@ export const App: React.FC = () => {
     if (googleSheetsService.isSheetsPrimary() && googleDriveService.isConfigured()) {
       try {
         const sheetData = await googleSheetsService.readAllFromMasterSheet();
-        if (
-          sheetData.jobs.length > 0 ||
-          sheetData.vehicles.length > 0 ||
-          sheetData.workshops.length > 0 ||
-          sheetData.modelReports.length > 0
-        ) {
-          setComplianceJobs(sheetData.jobs);
-          setVehicles(sheetData.vehicles);
-          setWorkshops(sheetData.workshops);
-          setModelReports(sheetData.modelReports);
-          setIsConnected(true);
-          setDbSetupNeeded(false);
-          setIsLoading(false);
-          return;
-        }
+        setComplianceJobs(sheetData.jobs || []);
+        setVehicles(sheetData.vehicles || []);
+        setWorkshops(sheetData.workshops || []);
+        setModelReports(sheetData.modelReports || []);
+        setIsConnected(true);
+        setDbSetupNeeded(false);
+        setIsLoading(false);
+        return;
       } catch (sheetErr) {
         console.warn('Failed reading from Google Sheets Master DB, checking fallback:', sheetErr);
       }
@@ -410,12 +403,158 @@ export const App: React.FC = () => {
     }
   };
 
+  // CRUD Persistence Handlers (Instant in-memory update + Google Sheets Master DB + Supabase)
+  const handleJobSaved = async (savedJob: ComplianceJob) => {
+    let updatedJobs = complianceJobs;
+    const idx = complianceJobs.findIndex(j => j.id === savedJob.id || j.folder_no === savedJob.folder_no);
+    if (idx >= 0) {
+      updatedJobs = [...complianceJobs];
+      updatedJobs[idx] = savedJob;
+    } else {
+      updatedJobs = [savedJob, ...complianceJobs];
+    }
+    setComplianceJobs(updatedJobs);
+
+    // Auto-link vehicle if new
+    let updatedVehicles = vehicles;
+    if (savedJob.vin) {
+      const vIdx = vehicles.findIndex(v => v.vin.toUpperCase() === savedJob.vin.toUpperCase());
+      if (vIdx >= 0) {
+        const currentV = vehicles[vIdx];
+        if (!currentV.raw_id && savedJob.raw_id) {
+          updatedVehicles = [...vehicles];
+          updatedVehicles[vIdx] = {
+            ...currentV,
+            raw_id: savedJob.raw_id,
+            raw_workshop_name: savedJob.raw_workshop_name || currentV.raw_workshop_name,
+            mre_no: savedJob.mre_no || currentV.mre_no,
+            make: savedJob.make || currentV.make,
+            model: savedJob.model || currentV.model,
+          };
+          setVehicles(updatedVehicles);
+        }
+      } else {
+        const newV: Vehicle = {
+          vin: savedJob.vin.toUpperCase(),
+          build_date: savedJob.build_date || new Date().toISOString().slice(0, 7),
+          via_no: savedJob.via_no || null,
+          raw_id: savedJob.raw_id || null,
+          raw_workshop_name: savedJob.raw_workshop_name || null,
+          mre_no: savedJob.mre_no || null,
+          make: savedJob.make || null,
+          model: savedJob.model || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        updatedVehicles = [newV, ...vehicles];
+        setVehicles(updatedVehicles);
+      }
+    }
+
+    if (googleDriveService.isConfigured()) {
+      try {
+        await googleSheetsService.syncAllDataToMasterSheet(
+          updatedJobs,
+          updatedVehicles,
+          workshops,
+          modelReports
+        );
+      } catch (sheetSyncErr) {
+        console.warn('Sheets sync on job save error:', sheetSyncErr);
+      }
+    }
+
+    await loadData();
+  };
+
+  const handleVehicleSaved = async (savedVehicle: Vehicle) => {
+    let updatedVehicles = vehicles;
+    const idx = vehicles.findIndex(v => v.vin.toUpperCase() === savedVehicle.vin.toUpperCase());
+    if (idx >= 0) {
+      updatedVehicles = [...vehicles];
+      updatedVehicles[idx] = savedVehicle;
+    } else {
+      updatedVehicles = [savedVehicle, ...vehicles];
+    }
+    setVehicles(updatedVehicles);
+
+    if (googleDriveService.isConfigured()) {
+      try {
+        await googleSheetsService.syncAllDataToMasterSheet(
+          complianceJobs,
+          updatedVehicles,
+          workshops,
+          modelReports
+        );
+      } catch (sheetSyncErr) {
+        console.warn('Sheets sync on vehicle save error:', sheetSyncErr);
+      }
+    }
+
+    await loadData();
+  };
+
+  const handleWorkshopSaved = async (savedWorkshop: RawWorkshop) => {
+    let updatedWorkshops = workshops;
+    const idx = workshops.findIndex(w => w.raw_id.toUpperCase() === savedWorkshop.raw_id.toUpperCase());
+    if (idx >= 0) {
+      updatedWorkshops = [...workshops];
+      updatedWorkshops[idx] = savedWorkshop;
+    } else {
+      updatedWorkshops = [savedWorkshop, ...workshops];
+    }
+    setWorkshops(updatedWorkshops);
+
+    if (googleDriveService.isConfigured()) {
+      try {
+        await googleSheetsService.syncAllDataToMasterSheet(
+          complianceJobs,
+          vehicles,
+          updatedWorkshops,
+          modelReports
+        );
+      } catch (sheetSyncErr) {
+        console.warn('Sheets sync on workshop save error:', sheetSyncErr);
+      }
+    }
+
+    await loadData();
+  };
+
+  const handleModelReportSaved = async (savedReport: ModelReport) => {
+    let updatedReports = modelReports;
+    const idx = modelReports.findIndex(r => r.mre_no.toUpperCase() === savedReport.mre_no.toUpperCase());
+    if (idx >= 0) {
+      updatedReports = [...modelReports];
+      updatedReports[idx] = savedReport;
+    } else {
+      updatedReports = [savedReport, ...modelReports];
+    }
+    setModelReports(updatedReports);
+
+    if (googleDriveService.isConfigured()) {
+      try {
+        await googleSheetsService.syncAllDataToMasterSheet(
+          complianceJobs,
+          vehicles,
+          workshops,
+          updatedReports
+        );
+      } catch (sheetSyncErr) {
+        console.warn('Sheets sync on model report save error:', sheetSyncErr);
+      }
+    }
+
+    await loadData();
+  };
+
   // Confirm Delete Action
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      if (!isSheetsPrimary) {
+      // 1. Delete in Supabase if online
+      try {
         if (deleteTarget.type === 'job') {
           await complianceJobService.delete(deleteTarget.id);
         } else if (deleteTarget.type === 'vehicle') {
@@ -425,9 +564,11 @@ export const App: React.FC = () => {
         } else if (deleteTarget.type === 'report') {
           await modelReportService.delete(deleteTarget.id);
         }
+      } catch (sbErr) {
+        console.warn('Supabase delete bypassed/failed:', sbErr);
       }
 
-      // Update state in memory
+      // 2. Update state in memory
       let newJobs = complianceJobs;
       let newVehicles = vehicles;
       let newWorkshops = workshops;
@@ -437,30 +578,32 @@ export const App: React.FC = () => {
         newJobs = complianceJobs.filter(j => j.id !== deleteTarget.id && j.folder_no !== deleteTarget.id);
         setComplianceJobs(newJobs);
       } else if (deleteTarget.type === 'vehicle') {
-        newVehicles = vehicles.filter(v => v.vin !== deleteTarget.id);
+        newVehicles = vehicles.filter(v => v.vin.toUpperCase() !== deleteTarget.id.toUpperCase());
         setVehicles(newVehicles);
       } else if (deleteTarget.type === 'workshop') {
-        newWorkshops = workshops.filter(w => w.raw_id !== deleteTarget.id);
+        newWorkshops = workshops.filter(w => w.raw_id.toUpperCase() !== deleteTarget.id.toUpperCase());
         setWorkshops(newWorkshops);
       } else if (deleteTarget.type === 'report') {
-        newReports = modelReports.filter(r => r.mre_no !== deleteTarget.id);
+        newReports = modelReports.filter(r => r.mre_no.toUpperCase() !== deleteTarget.id.toUpperCase());
         setModelReports(newReports);
       }
 
-      // Auto-sync update to Master Google Sheet
+      // 3. Immediately persist updated state to Master Google Sheet
       if (googleDriveService.isConfigured()) {
-        googleSheetsService.syncAllDataToMasterSheet(
-          newJobs,
-          newVehicles,
-          newWorkshops,
-          newReports
-        ).catch(e => console.warn('Background Sheets sync on delete:', e));
+        try {
+          await googleSheetsService.syncAllDataToMasterSheet(
+            newJobs,
+            newVehicles,
+            newWorkshops,
+            newReports
+          );
+        } catch (sheetErr) {
+          console.warn('Sheets sync on delete error:', sheetErr);
+        }
       }
 
       setDeleteTarget(null);
-      if (!isSheetsPrimary) {
-        await loadData();
-      }
+      await loadData();
     } catch (err: any) {
       alert(`Delete failed: ${err.message || 'Error deleting item'}`);
     } finally {
@@ -480,6 +623,7 @@ export const App: React.FC = () => {
         masterSheetUrl={masterSheetUrl}
         onSyncAllToSheets={handleSyncAllToSheets}
         isSyncingSheets={isSyncingSheets}
+        isSheetsPrimary={isSheetsPrimary}
         counts={{
           jobs: complianceJobs.length,
           vehicles: vehicles.length,
@@ -643,11 +787,12 @@ export const App: React.FC = () => {
       <ComplianceJobModal
         isOpen={isJobModalOpen}
         onClose={() => setIsJobModalOpen(false)}
-        onSaved={loadData}
+        onSaved={handleJobSaved}
         jobToEdit={selectedJob}
         vehicles={vehicles}
         workshops={workshops}
         modelReports={modelReports}
+        lastFolderNo={complianceJobs.length > 0 ? complianceJobs[0].folder_no : null}
         onRequestDocs={handleRequestDocs}
       />
 
@@ -661,7 +806,7 @@ export const App: React.FC = () => {
       <VehicleModal
         isOpen={isVehicleModalOpen}
         onClose={() => setIsVehicleModalOpen(false)}
-        onSaved={loadData}
+        onSaved={handleVehicleSaved}
         vehicleToEdit={selectedVehicle}
         workshops={workshops}
         modelReports={modelReports}
@@ -670,14 +815,14 @@ export const App: React.FC = () => {
       <WorkshopModal
         isOpen={isWorkshopModalOpen}
         onClose={() => setIsWorkshopModalOpen(false)}
-        onSaved={loadData}
+        onSaved={handleWorkshopSaved}
         workshopToEdit={selectedWorkshop}
       />
 
       <ModelReportModal
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
-        onSaved={loadData}
+        onSaved={handleModelReportSaved}
         reportToEdit={selectedReport}
       />
 

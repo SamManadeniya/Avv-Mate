@@ -24,16 +24,17 @@ import { SearchableSelect } from '../common/SearchableSelect';
 import { attachmentService } from '../../services/attachmentService';
 import { complianceJobService } from '../../services/complianceJobService';
 import { googleDriveService, type VehicleDriveHierarchy } from '../../services/googleDriveService';
-import { formatBytes } from '../../lib/utils';
+import { formatBytes, getNextFolderNumber } from '../../lib/utils';
 
 interface ComplianceJobModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (job: ComplianceJob) => void | Promise<void>;
   jobToEdit?: ComplianceJob | null;
   vehicles: Vehicle[];
   workshops: RawWorkshop[];
   modelReports: ModelReport[];
+  lastFolderNo?: string | null;
   onRequestDocs?: (job: ComplianceJob) => void;
 }
 
@@ -45,6 +46,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   vehicles,
   workshops,
   modelReports,
+  lastFolderNo,
   onRequestDocs,
 }) => {
   const [folderNo, setFolderNo] = useState('');
@@ -147,10 +149,15 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setMatchedVehicle(v || null);
     } else {
       // New Job mode
-      complianceJobService.getLastFolderNo().then(last => {
-        const next = last ? `SVC${String(parseInt(last.replace(/\D/g, '') || '1000', 10) + 1)}` : 'SVC1001';
-        setFolderNo(next);
-      });
+      if (lastFolderNo) {
+        setFolderNo(getNextFolderNumber(lastFolderNo));
+      } else {
+        complianceJobService.getLastFolderNo().then(last => {
+          setFolderNo(getNextFolderNumber(last));
+        }).catch(() => {
+          setFolderNo('SVC1001');
+        });
+      }
       setVin('');
       setRawId('');
       setMreNo('');
@@ -706,7 +713,34 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         }
       }
 
-      onSaved();
+      // Ensure workshop name and model report make/model are attached
+      if (!savedJob.raw_workshop_name && currentWorkshop) {
+        savedJob.raw_workshop_name = currentWorkshop.name;
+      }
+      if (!savedJob.make && currentMre) {
+        savedJob.make = currentMre.make;
+        savedJob.model = currentMre.model;
+      }
+
+      // Reconstruct attachments map for savedJob
+      const finalAttachments: any = { ...(savedJob.attachments || {}) };
+      Object.entries(uploadedAttachments).forEach(([k, att]) => {
+        finalAttachments[k] = {
+          id: `att_${folderNo}_${k}`,
+          job_id: savedJob.id,
+          doc_type: k,
+          file_name: att.name,
+          file_url: att.url,
+          mime_type: att.mimeType,
+          uploaded_at: new Date().toISOString(),
+        };
+      });
+      savedJob.attachments = finalAttachments;
+      const count = Object.values(finalAttachments).filter(Boolean).length;
+      savedJob.uploaded_docs_count = count;
+      savedJob.is_documents_complete = count >= 7;
+
+      await onSaved(savedJob);
       onClose();
     } catch (err: any) {
       console.error('Save error:', err);

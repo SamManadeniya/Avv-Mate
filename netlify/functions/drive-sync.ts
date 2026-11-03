@@ -911,6 +911,25 @@ export const handler = async (event: any) => {
       // Ensure all 4 tabs exist before writing values into them
       await ensureMasterSheetTabs(token, spreadsheetId);
 
+      // Clear data rows (row 2 onwards) so deleted records or reduced rows don't linger
+      const clearRanges: string[] = [];
+      if (Array.isArray(tables.jobs)) clearRanges.push('Compliance_Jobs!A2:AA');
+      if (Array.isArray(tables.vehicles)) clearRanges.push('Vehicles!A2:J');
+      if (Array.isArray(tables.workshops)) clearRanges.push('RAW_Workshops!A2:G');
+      if (Array.isArray(tables.modelReports)) clearRanges.push('Model_Reports!A2:L');
+
+      if (clearRanges.length > 0) {
+        try {
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ranges: clearRanges }),
+          });
+        } catch (clearErr) {
+          console.warn('Batch clear before sync notice:', clearErr);
+        }
+      }
+
       const updateData: Array<{ range: string; values: any[][] }> = [];
 
       // 1. Compliance_Jobs
@@ -962,7 +981,11 @@ export const handler = async (event: any) => {
           }
 
           const docsSummary = `${attachedCount}/8 ${attachedCount >= 7 ? 'Complete' : 'Pending'}`;
-          const attachmentsJson = JSON.stringify(att);
+          const attachmentsPayload = {
+            ...att,
+            _videos_url: j.videos_url || null,
+          };
+          const attachmentsJson = JSON.stringify(attachmentsPayload);
 
           jobRows.push([
             j.folder_no || '',
@@ -1148,10 +1171,88 @@ export const handler = async (event: any) => {
       const readData = await readRes.json();
       const ranges = readData.valueRanges || [];
 
-      // Range 0: Compliance_Jobs (with full attachments reconstruction)
+      // Range 2: RAW_Workshops (parsed first for cross-referencing)
+      const workshopsRaw = ranges[2]?.values || [];
+      const workshops = workshopsRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[]) => ({
+        raw_id: String(r[0]).trim(),
+        name: String(r[1] || '').trim(),
+        contact_email: r[2] || null,
+        contact_phone: r[3] || null,
+        total_vehicles: parseInt(r[4], 10) || 0,
+        created_at: r[5] || new Date().toISOString(),
+        updated_at: r[6] || null,
+      }));
+      const workshopMap = new Map(workshops.map(w => [w.raw_id.toUpperCase(), w]));
+
+      // Range 3: Model_Reports (parsed second for cross-referencing)
+      const reportsRaw = ranges[3]?.values || [];
+      const modelReports = reportsRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[]) => ({
+        mre_no: String(r[0]).trim(),
+        make: String(r[1] || '').trim(),
+        model: String(r[2] || '').trim(),
+        sev_no: r[3] || null,
+        vcc: r[4] || null,
+        build_from: r[5] || null,
+        build_to: r[6] || null,
+        tare_kg: r[7] ? parseFloat(r[7]) : null,
+        power_kw: r[8] ? parseFloat(r[8]) : null,
+        seats: r[9] ? parseInt(r[9], 10) : null,
+        author: r[10] || null,
+        created_at: r[11] || new Date().toISOString(),
+      }));
+      const reportMap = new Map(modelReports.map(m => [m.mre_no.toUpperCase(), m]));
+
+      // Range 1: Vehicles
+      const vehiclesRaw = ranges[1]?.values || [];
+      const vehicles = vehiclesRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[]) => {
+        const vin = String(r[0]).trim();
+        const rawId = r[3] ? String(r[3]).trim().toUpperCase() : null;
+        const mreNo = r[5] ? String(r[5]).trim().toUpperCase() : null;
+        const rawWs = rawId ? workshopMap.get(rawId) : null;
+        const mr = mreNo ? reportMap.get(mreNo) : null;
+
+        const rawWsNameVal = r[4] ? String(r[4]).trim() : '';
+        const wsName = (rawWsNameVal && !rawWsNameVal.startsWith('=') && !rawWsNameVal.startsWith('#'))
+          ? rawWsNameVal
+          : (rawWs?.name || null);
+
+        const makeVal = r[6] ? String(r[6]).trim() : '';
+        const modelVal = r[7] ? String(r[7]).trim() : '';
+
+        return {
+          vin,
+          build_date: r[1] || '',
+          via_no: r[2] || null,
+          raw_id: rawId,
+          raw_workshop_name: wsName,
+          mre_no: mreNo,
+          make: makeVal || mr?.make || null,
+          model: modelVal || mr?.model || null,
+          created_at: r[8] || new Date().toISOString(),
+          updated_at: r[9] || null,
+        };
+      });
+
+      // Range 0: Compliance_Jobs (with full attachments reconstruction and formula resolution)
       const jobsRaw = ranges[0]?.values || [];
-      const jobs = jobsRaw.slice(1).filter((r: any[]) => r[0] && r[1]).map((r: any[], i: number) => {
-        const folderNo = r[0] || '';
+      const jobs = jobsRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[], i: number) => {
+        const folderNo = String(r[0]).trim();
+        const vin = String(r[1] || '').trim();
+        const rawId = r[2] ? String(r[2]).trim().toUpperCase() : null;
+        const mreNo = r[4] ? String(r[4]).trim().toUpperCase() : null;
+        const rawWs = rawId ? workshopMap.get(rawId) : null;
+        const mr = mreNo ? reportMap.get(mreNo) : null;
+
+        const rawWsNameVal = r[3] ? String(r[3]).trim() : '';
+        const wsName = (rawWsNameVal && !rawWsNameVal.startsWith('=') && !rawWsNameVal.startsWith('#'))
+          ? rawWsNameVal
+          : (rawWs?.name || null);
+
+        const makeVal = r[5] ? String(r[5]).trim() : '';
+        const modelVal = r[6] ? String(r[6]).trim() : '';
+
+        let videosUrl = (r[23] && r[23].includes('http')) ? r[23] : ((r[15] && r[15].includes('http')) ? r[15] : null);
+
         const attachmentsMap: Record<string, any> = {
           CRE: null, EC: null, CIN: null, WI: null,
           DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
@@ -1163,15 +1264,30 @@ export const handler = async (event: any) => {
           try {
             const parsed = JSON.parse(jsonStr);
             ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'PHOTOS'].forEach(k => {
-              if (parsed[k] && parsed[k].file_url) {
-                attachmentsMap[k] = parsed[k];
+              const item = parsed[k];
+              const fileUrl = item?.file_url || item?.url;
+              if (item && fileUrl) {
+                const finalUrl = (fileUrl.startsWith('http') && !fileUrl.startsWith('blob:'))
+                  ? fileUrl
+                  : `https://drive.google.com/drive/search?q=${folderNo}`;
+                attachmentsMap[k] = {
+                  id: `att_${folderNo}_${k}`,
+                  job_id: `job_sheet_${folderNo}`,
+                  doc_type: k,
+                  file_name: item.name || item.file_name || `${k} Document`,
+                  file_url: finalUrl,
+                  mime_type: item.mimeType || item.mime_type || (k === 'PHOTOS' ? 'image/jpeg' : 'application/pdf'),
+                  uploaded_at: item.uploaded_at || new Date().toISOString(),
+                };
               }
             });
+            if (parsed._videos_url && typeof parsed._videos_url === 'string') {
+              videosUrl = parsed._videos_url;
+            }
           } catch (_) {}
         }
 
         // 2. Fallback: check document columns N through U:
-        // Col indices: N=13(CRE), O=14(EC), P=15(CIN), Q=16(WI), R=17(DC), S=18(VI), T=19(RAW_DECLA), U=20(PHOTOS)
         const docCols: Array<{ type: string; colIdx: number }> = [
           { type: 'CRE', colIdx: 13 },
           { type: 'EC', colIdx: 14 },
@@ -1188,11 +1304,13 @@ export const handler = async (event: any) => {
             const val = String(r[colIdx]).trim();
             if (val && val !== 'Missing' && val !== '—') {
               attachmentsMap[type] = {
+                id: `att_${folderNo}_${type}`,
                 job_id: `job_sheet_${folderNo}`,
                 doc_type: type,
                 file_name: `${type} Document`,
                 file_url: val.includes('http') ? val : `https://drive.google.com/drive/search?q=${folderNo}`,
                 mime_type: type === 'PHOTOS' ? 'image/jpeg' : 'application/pdf',
+                uploaded_at: new Date().toISOString(),
               };
             }
           }
@@ -1210,23 +1328,18 @@ export const handler = async (event: any) => {
         }
 
         const isComplete = uploadedDocsCount >= 7 || String(docsSummary).includes('Complete') || String(docsSummary).includes('8/8');
-
-        // Column indices:
-        // If 27 cols: W=22(drive), X=23(videos), Y=24(error), Z=25(created_at)
-        // If 18 cols: O=14(drive), P=15(videos), Q=16(error), R=17(created_at)
-        const videosUrl = (r[23] && r[23].includes('http')) ? r[23] : ((r[15] && r[15].includes('http')) ? r[15] : null);
         const errorNote = r[24] || r[16] || null;
         const createdAt = r[25] || r[17] || new Date().toISOString();
 
         return {
           id: `job_sheet_${folderNo || i}`,
           folder_no: folderNo,
-          vin: r[1] || '',
-          raw_id: r[2] || null,
-          raw_workshop_name: r[3] || null,
-          mre_no: r[4] || null,
-          make: r[5] || null,
-          model: r[6] || null,
+          vin,
+          raw_id: rawId,
+          raw_workshop_name: wsName,
+          mre_no: mreNo,
+          make: makeVal || mr?.make || null,
+          model: modelVal || mr?.model || null,
           build_date: r[7] || null,
           via_no: r[8] || null,
           request_received: r[9] || new Date().toISOString().slice(0, 10),
@@ -1241,50 +1354,6 @@ export const handler = async (event: any) => {
           created_at: createdAt,
         };
       });
-
-      // Range 1: Vehicles
-      const vehiclesRaw = ranges[1]?.values || [];
-      const vehicles = vehiclesRaw.slice(1).filter((r: any[]) => r[0]).map((r: any[]) => ({
-        vin: r[0] || '',
-        build_date: r[1] || '',
-        via_no: r[2] || null,
-        raw_id: r[3] || null,
-        raw_workshop_name: r[4] || null,
-        mre_no: r[5] || null,
-        make: r[6] || null,
-        model: r[7] || null,
-        created_at: r[8] || new Date().toISOString(),
-        updated_at: r[9] || null,
-      }));
-
-      // Range 2: RAW_Workshops
-      const workshopsRaw = ranges[2]?.values || [];
-      const workshops = workshopsRaw.slice(1).filter((r: any[]) => r[0]).map((r: any[]) => ({
-        raw_id: r[0] || '',
-        name: r[1] || '',
-        contact_email: r[2] || null,
-        contact_phone: r[3] || null,
-        total_vehicles: parseInt(r[4], 10) || 0,
-        created_at: r[5] || new Date().toISOString(),
-        updated_at: r[6] || null,
-      }));
-
-      // Range 3: Model_Reports
-      const reportsRaw = ranges[3]?.values || [];
-      const modelReports = reportsRaw.slice(1).filter((r: any[]) => r[0]).map((r: any[]) => ({
-        mre_no: r[0] || '',
-        make: r[1] || '',
-        model: r[2] || '',
-        sev_no: r[3] || null,
-        vcc: r[4] || null,
-        build_from: r[5] || null,
-        build_to: r[6] || null,
-        tare_kg: r[7] ? parseFloat(r[7]) : null,
-        power_kw: r[8] ? parseFloat(r[8]) : null,
-        seats: r[9] ? parseInt(r[9], 10) : null,
-        author: r[10] || null,
-        created_at: r[11] || new Date().toISOString(),
-      }));
 
       return {
         statusCode: 200,
