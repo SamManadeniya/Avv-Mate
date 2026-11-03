@@ -684,18 +684,23 @@ class GoogleDriveService {
   }
 
   /**
-   * Demo / Simulated Drive Hierarchy for immediate testing without live API keys
+   * Demo / Simulated Drive Hierarchy for immediate testing without live API keys.
+   * Generates valid Google Drive links pointing to the root parent folder if configured.
    */
   public getDemoHierarchy(folderNo: string): VehicleDriveHierarchy {
     const cleanFolder = folderNo.toUpperCase().trim() || 'SVC1001';
-    const baseUrl = 'https://drive.google.com/drive/folders';
+    const rootId = this.cleanFolderId(this.config.rootFolderId || '');
+    const realFolderLink = this.isValidDriveId(rootId)
+      ? `https://drive.google.com/drive/folders/${rootId}`
+      : 'https://drive.google.com/drive/u/0/my-drive';
+
     return {
-      vehicleFolder: { id: `drive_${cleanFolder}`, name: cleanFolder, webViewLink: `${baseUrl}/#${cleanFolder}` },
-      docsFolder: { id: `drive_${cleanFolder}_docs`, name: 'DOCS', webViewLink: `${baseUrl}/#${cleanFolder}_DOCS` },
-      mediaFolder: { id: `drive_${cleanFolder}_media`, name: 'MEDIA', webViewLink: `${baseUrl}/#${cleanFolder}_MEDIA` },
-      photosFolder: { id: `drive_${cleanFolder}_photos`, name: 'PHOTOS', webViewLink: `${baseUrl}/#${cleanFolder}_PHOTOS` },
-      videosFolder: { id: `drive_${cleanFolder}_videos`, name: 'VIDEOS', webViewLink: `${baseUrl}/#${cleanFolder}_VIDEOS` },
-      submitFolder: { id: `drive_${cleanFolder}_submit`, name: 'SUBMIT', webViewLink: `${baseUrl}/#${cleanFolder}_SUBMIT` },
+      vehicleFolder: { id: `drive_${cleanFolder}`, name: cleanFolder, webViewLink: realFolderLink },
+      docsFolder: { id: `drive_${cleanFolder}_docs`, name: 'DOCS', webViewLink: realFolderLink },
+      mediaFolder: { id: `drive_${cleanFolder}_media`, name: 'MEDIA', webViewLink: realFolderLink },
+      photosFolder: { id: `drive_${cleanFolder}_photos`, name: 'PHOTOS', webViewLink: realFolderLink },
+      videosFolder: { id: `drive_${cleanFolder}_videos`, name: 'VIDEOS', webViewLink: realFolderLink },
+      submitFolder: { id: `drive_${cleanFolder}_submit`, name: 'SUBMIT', webViewLink: realFolderLink },
     };
   }
 }
