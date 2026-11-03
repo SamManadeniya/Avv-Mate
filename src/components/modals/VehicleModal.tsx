@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, AlertCircle, Car, Wrench, FileText } from 'lucide-react';
 import type { Vehicle, RawWorkshop, ModelReport } from '../../types';
+import { SearchableSelect } from '../common/SearchableSelect';
 import { vehicleService } from '../../services/vehicleService';
 import { validateVin } from '../../lib/utils';
 
@@ -239,29 +240,21 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 items-start">
               <div className="min-w-0">
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  Type or Select RAW ID
+                  Search & Select RAW Workshop
                 </label>
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <input
-                    type="text"
-                    value={rawId}
-                    onChange={e => handleRawIdChange(e.target.value)}
-                    placeholder="RAW-000153"
-                    className="flex-1 min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono uppercase focus:ring-2 focus:ring-sky-500"
-                  />
-                  <select
-                    value={rawId}
-                    onChange={e => handleRawIdChange(e.target.value)}
-                    className="w-28 shrink-0 px-2 py-2 bg-white border border-slate-300 rounded-md text-xs font-mono focus:ring-2 focus:ring-sky-500 text-slate-700"
-                  >
-                    <option value="">Quick Select</option>
-                    {workshops.map(w => (
-                      <option key={w.raw_id} value={w.raw_id}>
-                        {w.raw_id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <SearchableSelect
+                  value={rawId}
+                  onChange={val => handleRawIdChange(val)}
+                  options={workshops.map(w => ({
+                    value: w.raw_id,
+                    label: w.raw_id,
+                    subLabel: w.name,
+                    badge: w.contact_phone || undefined,
+                  }))}
+                  placeholder="-- Search or select workshop --"
+                  searchPlaceholder="Search by RAW ID or workshop name..."
+                  emptyMessage="No workshops match your search"
+                />
               </div>
 
               <div className="min-w-0">
@@ -289,20 +282,21 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="min-w-0">
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                  MRE No
+                  MRE No (Search & Select)
                 </label>
-                <select
+                <SearchableSelect
                   value={mreNo}
-                  onChange={e => handleMreChange(e.target.value)}
-                  className="w-full min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
-                >
-                  <option value="">Select MRE...</option>
-                  {modelReports.map(m => (
-                    <option key={m.mre_no} value={m.mre_no}>
-                      {m.mre_no} • {m.make} {m.model}
-                    </option>
-                  ))}
-                </select>
+                  onChange={val => handleMreChange(val)}
+                  options={modelReports.map(m => ({
+                    value: m.mre_no,
+                    label: m.mre_no,
+                    subLabel: `${m.make} ${m.model}${m.sev_no ? ` • SEV: ${m.sev_no}` : ''}`,
+                    badge: m.vcc || undefined,
+                  }))}
+                  placeholder="-- Search or select MRE --"
+                  searchPlaceholder="Search by MRE #, make, model or SEV..."
+                  emptyMessage="No model reports match your search"
+                />
               </div>
 
               <div className="min-w-0">

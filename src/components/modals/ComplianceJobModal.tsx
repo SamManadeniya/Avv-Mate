@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport, DocType } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
+import { SearchableSelect } from '../common/SearchableSelect';
 import { attachmentService } from '../../services/attachmentService';
 import { complianceJobService } from '../../services/complianceJobService';
 import { googleDriveService, type VehicleDriveHierarchy } from '../../services/googleDriveService';
@@ -788,11 +789,19 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                     value={vin}
                     onChange={e => handleVinChange(e.target.value)}
                     disabled={!!jobToEdit}
-                    placeholder="Enter or paste 17-char VIN"
+                    placeholder="Enter, paste or select 17-char VIN"
                     maxLength={17}
+                    list="registered-vins-list"
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md font-mono text-sm uppercase focus:ring-2 focus:ring-sky-500 focus:outline-hidden disabled:bg-slate-100"
                     required
                   />
+                  <datalist id="registered-vins-list">
+                    {vehicles.map(v => (
+                      <option key={v.vin} value={v.vin}>
+                        {v.make && v.model ? `${v.make} ${v.model} • ${v.raw_id || 'Registered'}` : v.raw_id || ''}
+                      </option>
+                    ))}
+                  </datalist>
                   {matchedVehicle && (
                     <span className="absolute right-3 top-2.5 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
                       <Check className="w-3 h-3" /> Auto-Prefilled
@@ -807,20 +816,21 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               {/* RAW Workshop Selection/Prefill */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  RAW Workshop (Auto-filled from VIN, or select)
+                  RAW Workshop (Auto-filled from VIN, or search & select)
                 </label>
-                <select
+                <SearchableSelect
                   value={rawId}
-                  onChange={e => setRawId(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
-                >
-                  <option value="">-- Select Workshop --</option>
-                  {workshops.map(w => (
-                    <option key={w.raw_id} value={w.raw_id}>
-                      {w.raw_id} • {w.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={val => setRawId(val)}
+                  options={workshops.map(w => ({
+                    value: w.raw_id,
+                    label: w.raw_id,
+                    subLabel: w.name,
+                    badge: w.contact_phone || undefined,
+                  }))}
+                  placeholder="-- Select Workshop --"
+                  searchPlaceholder="Search by RAW ID or workshop name..."
+                  emptyMessage="No workshops match your search"
+                />
                 {currentWorkshop && (
                   <p className="text-[11px] text-slate-500 mt-1 font-medium">
                     Name: <span className="text-slate-800 font-semibold">{currentWorkshop.name}</span>
@@ -831,20 +841,21 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               {/* Model Report Selection/Prefill */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Model Report (MRE) (Auto-filled from VIN, or select)
+                  Model Report (MRE) (Auto-filled from VIN, or search & select)
                 </label>
-                <select
+                <SearchableSelect
                   value={mreNo}
-                  onChange={e => setMreNo(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
-                >
-                  <option value="">-- Select MRE --</option>
-                  {modelReports.map(m => (
-                    <option key={m.mre_no} value={m.mre_no}>
-                      {m.mre_no} • {m.make} {m.model}
-                    </option>
-                  ))}
-                </select>
+                  onChange={val => setMreNo(val)}
+                  options={modelReports.map(m => ({
+                    value: m.mre_no,
+                    label: m.mre_no,
+                    subLabel: `${m.make} ${m.model}${m.sev_no ? ` • SEV: ${m.sev_no}` : ''}`,
+                    badge: m.vcc || undefined,
+                  }))}
+                  placeholder="-- Select MRE --"
+                  searchPlaceholder="Search by MRE #, make, model or SEV..."
+                  emptyMessage="No model reports match your search"
+                />
                 {currentMre && (
                   <p className="text-[11px] text-slate-500 mt-1 font-medium">
                     Make/Model: <span className="text-slate-800 font-semibold">{currentMre.make} {currentMre.model}</span> (SEV: {currentMre.sev_no || 'N/A'})
