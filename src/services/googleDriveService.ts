@@ -630,6 +630,10 @@ class GoogleDriveService {
 
       return hierarchy;
     } catch (err: any) {
+      if (err.message?.includes('401') || err.message?.includes('UNAUTHENTICATED') || err.message?.includes('invalid authentication credentials')) {
+        this.saveConfig({ accessToken: undefined, tokenExpiresAt: 0 });
+        throw new Error('Google Drive session expired on this browser. Please re-authorize or continue in workbench mode.');
+      }
       // If network/CORS error or invalid session, check error type
       if (err.name === 'TypeError' || err.message?.includes('fetch') || err.message?.includes('Load failed')) {
         throw new Error(

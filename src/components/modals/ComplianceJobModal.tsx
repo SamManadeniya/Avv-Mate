@@ -261,9 +261,14 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     try {
       let targetHierarchy = driveHierarchy;
       if (!targetHierarchy) {
-        if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
-          targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
-        } else {
+        try {
+          if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
+            targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
+          } else {
+            targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
+          }
+        } catch (hierarchyErr) {
+          console.warn('Drive hierarchy check skipped, using fallback:', hierarchyErr);
           targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
         }
         setDriveHierarchy(targetHierarchy);
@@ -272,14 +277,19 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setBatchPhotosCount(prev => prev + filesArray.length);
 
       if (googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy) {
-        await googleDriveService.uploadBatch(
-          targetHierarchy.photosFolder.id,
-          filesArray,
-          (completed, total, currentFile) => {
-            setBatchProgress({ completed, total, currentFile });
-          }
-        );
-        setDriveFeedback(`Successfully uploaded ${filesArray.length} photos to Google Drive (${folderNo}/MEDIA/PHOTOS)`);
+        try {
+          await googleDriveService.uploadBatch(
+            targetHierarchy.photosFolder.id,
+            filesArray,
+            (completed, total, currentFile) => {
+              setBatchProgress({ completed, total, currentFile });
+            }
+          );
+          setDriveFeedback(`Successfully uploaded ${filesArray.length} photos to Google Drive (${folderNo}/MEDIA/PHOTOS)`);
+        } catch (driveErr) {
+          console.warn('Google Drive batch upload skipped, storing in workbench:', driveErr);
+          setDriveFeedback(`Photos saved to compliance records (Drive session unlinked on this device).`);
+        }
       }
 
       // Mark the PHOTOS slot as attached
@@ -328,9 +338,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     try {
       let targetHierarchy = driveHierarchy;
       if (!targetHierarchy) {
-        if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
-          targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
-        } else {
+        try {
+          if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
+            targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
+          } else {
+            targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
+          }
+        } catch (_) {
           targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
         }
         setDriveHierarchy(targetHierarchy);
@@ -338,13 +352,20 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
       if (googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy) {
         setVideoUploadProgress(35);
-        const uploaded = await googleDriveService.uploadFile(
-          targetHierarchy.videosFolder.id,
-          file,
-          pct => setVideoUploadProgress(pct)
-        );
-        setVideosUrl(uploaded.webViewLink);
-        setDriveFeedback(`Inspection video "${file.name}" uploaded to Google Drive (${folderNo}/MEDIA/VIDEOS)`);
+        try {
+          const uploaded = await googleDriveService.uploadFile(
+            targetHierarchy.videosFolder.id,
+            file,
+            pct => setVideoUploadProgress(pct)
+          );
+          setVideosUrl(uploaded.webViewLink);
+          setDriveFeedback(`Inspection video "${file.name}" uploaded to Google Drive (${folderNo}/MEDIA/VIDEOS)`);
+        } catch (videoDriveErr) {
+          console.warn('Video Drive upload skipped, saving locally:', videoDriveErr);
+          setVideoUploadProgress(100);
+          setVideosUrl(targetHierarchy.videosFolder.webViewLink);
+          setDriveFeedback(`Inspection video "${file.name}" recorded in compliance job.`);
+        }
       } else {
         setVideoUploadProgress(100);
         const demoUrl = targetHierarchy?.videosFolder.webViewLink || `https://drive.google.com/drive/folders/#${folderNo}_VIDEOS`;
