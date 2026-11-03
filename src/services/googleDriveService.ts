@@ -285,24 +285,34 @@ class GoogleDriveService {
       throw new Error('No access token available. Please connect your Google account or provide an access token.');
     }
 
-    // 1. Check user details & quota
-    const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=user,storageQuota', {
-      headers: {
-        Authorization: `Bearer ${activeToken}`,
-      },
+    let userEmail = 'Google Drive User';
+    let userName = 'Connected Account';
+
+    // 1. Try to fetch user info via Google OAuth2 Userinfo endpoint (CORS friendly)
+    try {
+      const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${activeToken}` },
+      });
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        userEmail = userData.email || userEmail;
+        userName = userData.name || userName;
+      }
+    } catch (_) {}
+
+    // 2. Validate Google Drive API access via files endpoint (works seamlessly with drive.file scope)
+    const filesRes = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=1', {
+      headers: { Authorization: `Bearer ${activeToken}` },
     });
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      let msg = `Google Drive API error (${res.status})`;
+    if (!filesRes.ok) {
+      let msg = `Google Drive connection failed (${filesRes.status})`;
       try {
-        const errJson = JSON.parse(errorText);
+        const errJson = await filesRes.json();
         msg = errJson.error?.message || msg;
       } catch (_) {}
       throw new Error(msg);
     }
-
-    const data = await res.json();
 
     let rootFolderName: string | undefined;
     if (this.config.rootFolderId) {
@@ -322,14 +332,14 @@ class GoogleDriveService {
 
     // Update config with live user metadata
     this.saveConfig({
-      userEmail: data.user?.emailAddress,
-      userName: data.user?.displayName,
+      userEmail,
+      userName,
       rootFolderName,
     });
 
     return {
-      user: data.user || { displayName: 'Connected User', emailAddress: '' },
-      quota: data.storageQuota || {},
+      user: { displayName: userName, emailAddress: userEmail },
+      quota: {},
       rootFolderName,
     };
   }
