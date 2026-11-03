@@ -589,9 +589,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 <div className="flex items-center gap-2">
                   {(() => {
                     const rawLink = driveHierarchy?.vehicleFolder.webViewLink;
+                    const defaultRoot = googleDriveService.getConfig().rootFolderId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
                     const safeLink = rawLink && !rawLink.includes('#')
                       ? rawLink
-                      : 'https://drive.google.com/drive/folders/1CabfFBbXFvuYqL5hzaXW0yLYa_01D5rV';
+                      : `https://drive.google.com/drive/folders/${defaultRoot}`;
                     return (
                       <a
                         href={safeLink}

@@ -327,17 +327,35 @@ class GoogleDriveService {
 
     // 2. Validate Google Drive API access via files endpoint (supportsAllDrives for shared folders)
     try {
-      const filesRes = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true', {
-        headers: { Authorization: `Bearer ${activeToken}` },
-      });
+      // First try serverless proxy on Netlify to bypass CORS completely
+      let verifiedViaProxy = false;
+      try {
+        const proxyRes = await fetch('/api/drive-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'testConnection',
+            accessToken: activeToken,
+          }),
+        });
+        if (proxyRes.ok) {
+          verifiedViaProxy = true;
+        }
+      } catch (_) {}
 
-      if (!filesRes.ok) {
-        let msg = `Google Drive connection failed (${filesRes.status})`;
-        try {
-          const errJson = await filesRes.json();
-          msg = errJson.error?.message || msg;
-        } catch (_) {}
-        throw new Error(msg);
+      if (!verifiedViaProxy) {
+        const filesRes = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true', {
+          headers: { Authorization: `Bearer ${activeToken}` },
+        });
+
+        if (!filesRes.ok) {
+          let msg = `Google Drive connection failed (${filesRes.status})`;
+          try {
+            const errJson = await filesRes.json();
+            msg = errJson.error?.message || msg;
+          } catch (_) {}
+          throw new Error(msg);
+        }
       }
     } catch (fetchErr: any) {
       if (fetchErr.name === 'TypeError' || fetchErr.message?.includes('fetch') || fetchErr.message?.includes('Load failed')) {
@@ -552,10 +570,37 @@ class GoogleDriveService {
     if (this.config.rootFolderId) {
       rootParentId = await this.resolveParentFolderId(this.config.rootFolderId);
     }
+    const finalParent = rootParentId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
+
+    // 1. Try Serverless Proxy on Netlify (Immune to browser CORS and CSP)
+    try {
+      const proxyRes = await fetch('/api/drive-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'ensureVehicleFolderHierarchy',
+          folderNo: cleanFolder,
+          parentFolderId: finalParent,
+          accessToken: this.config.accessToken,
+        }),
+      });
+
+      if (proxyRes.ok) {
+        const proxyData = await proxyRes.json();
+        if (proxyData.success && proxyData.hierarchy) {
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify(proxyData.hierarchy));
+          } catch (_) {}
+          return proxyData.hierarchy;
+        }
+      }
+    } catch (proxyErr) {
+      console.warn('[GoogleDrive] Serverless proxy skipped, falling back to client:', proxyErr);
+    }
 
     try {
-      // 1. Create/find Root Vehicle Folder (e.g. SVC1028)
-      const vehicleFolder = await this.findOrCreateFolder(cleanFolder, rootParentId);
+      // 2. Direct browser fallback: Create/find Root Vehicle Folder (e.g. SVC1028)
+      const vehicleFolder = await this.findOrCreateFolder(cleanFolder, finalParent);
 
       // 2. Create/find DOCS and MEDIA inside SVC1028
       const [docsFolder, mediaFolder] = await Promise.all([
