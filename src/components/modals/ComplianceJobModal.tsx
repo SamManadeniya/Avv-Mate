@@ -92,7 +92,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setRawId(jobToEdit.raw_id || '');
       setMreNo(jobToEdit.mre_no || '');
       setRequestReceived(jobToEdit.request_received || '');
-      setVideosUrl(jobToEdit.videos_url || '');
+      setVideosUrl(jobToEdit.videos_url && !jobToEdit.videos_url.includes('#') ? jobToEdit.videos_url : '');
       setAvvVerificationDate(jobToEdit.avv_verification_date || '');
       setRavDateOfEntry(jobToEdit.rav_date_of_entry || '');
       setStatus(jobToEdit.status || 'in_progress');
@@ -587,18 +587,24 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {driveHierarchy?.vehicleFolder.webViewLink && (
-                    <a
-                      href={driveHierarchy.vehicleFolder.webViewLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded transition"
-                      title="Open this car's folder on Google Drive"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Open in Drive</span>
-                    </a>
-                  )}
+                  {(() => {
+                    const rawLink = driveHierarchy?.vehicleFolder.webViewLink;
+                    const safeLink = rawLink && !rawLink.includes('#')
+                      ? rawLink
+                      : 'https://drive.google.com/drive/folders/1CabfFBbXFvuYqL5hzaXW0yLYa_01D5rV';
+                    return (
+                      <a
+                        href={safeLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded transition"
+                        title="Open this car's folder on Google Drive"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Open in Drive</span>
+                      </a>
+                    );
+                  })()}
                   <button
                     type="button"
                     onClick={handleInitializeDrive}
