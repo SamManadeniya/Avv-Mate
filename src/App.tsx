@@ -57,6 +57,12 @@ export const App: React.FC = () => {
   const [isDriveConnected, setIsDriveConnected] = useState(() => googleDriveService.isConfigured());
 
   useEffect(() => {
+    // Check if Google redirected back with auth token
+    const tokenParsed = googleDriveService.parseAuthCallbackFromUrl();
+    if (tokenParsed) {
+      setIsDriveConnected(true);
+    }
+
     const handleConfigChange = () => {
       setIsDriveConnected(googleDriveService.isConfigured());
     };

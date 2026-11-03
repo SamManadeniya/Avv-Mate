@@ -127,6 +127,52 @@ class GoogleDriveService {
   }
 
   /**
+   * Generates a direct Google OAuth Redirect URL (bypasses browser popup blockers completely)
+   */
+  public getDirectAuthUrl(customClientId?: string): string {
+    const clientId = customClientId || this.config.clientId;
+    if (!clientId) {
+      throw new Error('Google OAuth Client ID is required.');
+    }
+    const redirectUri = typeof window !== 'undefined' ? window.location.origin : 'https://avvmate.netlify.app';
+    const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly');
+    return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&prompt=consent`;
+  }
+
+  /**
+   * Checks if Google OAuth redirected back with #access_token in URL hash
+   */
+  public parseAuthCallbackFromUrl(): boolean {
+    if (typeof window === 'undefined') return false;
+    const hash = window.location.hash;
+    if (hash && hash.includes('access_token=')) {
+      const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
+      const params = new URLSearchParams(cleanHash);
+      const token = params.get('access_token');
+      const expiresIn = Number(params.get('expires_in')) || 3599;
+
+      if (token) {
+        this.saveConfig({
+          accessToken: token,
+          tokenExpiresAt: Date.now() + expiresIn * 1000,
+          enabled: true,
+        });
+
+        // Clean the hash from the browser address bar without reload
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+        // Fetch user info in background
+        this.testConnection(token).catch(err => {
+          console.warn('Background Drive test error:', err);
+        });
+
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Dynamically loads Google Identity Services client script
    */
   public loadGsiScript(): Promise<void> {

@@ -130,6 +130,31 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
     }
   };
 
+  const handleDirectRedirectAuth = () => {
+    if (!clientId.trim()) {
+      setTestResult({
+        success: false,
+        message: 'Please enter your Google OAuth Client ID first.',
+      });
+      return;
+    }
+    // Save current values so they are preserved after redirect
+    googleDriveService.saveConfig({
+      clientId: clientId.trim(),
+      rootFolderId: googleDriveService.cleanFolderId(rootFolderInput),
+      storageMode,
+    });
+    try {
+      const url = googleDriveService.getDirectAuthUrl(clientId.trim());
+      window.location.href = url;
+    } catch (e: any) {
+      setTestResult({
+        success: false,
+        message: e.message || 'Failed to start authorization redirect.',
+      });
+    }
+  };
+
   const handleDisconnect = () => {
     googleDriveService.saveConfig({
       accessToken: undefined,
@@ -315,23 +340,40 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Google OAuth 2.0 Client ID
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={clientId}
-                    onChange={e => setClientId(e.target.value)}
-                    placeholder="1234567890-abcdefg.apps.googleusercontent.com"
-                    className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-mono focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleGoogleOAuthLogin}
-                    disabled={isAuthenticating}
-                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-md shadow-2xs transition flex items-center gap-1.5 disabled:opacity-50 shrink-0"
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    <span>{isAuthenticating ? 'Authorizing…' : 'Authorize Drive'}</span>
-                  </button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={clientId}
+                      onChange={e => setClientId(e.target.value)}
+                      placeholder="1234567890-abcdefg.apps.googleusercontent.com"
+                      className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-md text-xs font-mono focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGoogleOAuthLogin}
+                      disabled={isAuthenticating}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-md shadow-2xs transition flex items-center gap-1.5 disabled:opacity-50 shrink-0"
+                      title="Authorize using Google popup window"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>{isAuthenticating ? 'Waiting popup…' : 'Authorize (Popup)'}</span>
+                    </button>
+                  </div>
+
+                  {/* Guaranteed Full-Screen Redirect Button */}
+                  <div className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg">
+                    <div className="text-[11px] text-slate-600">
+                      <span className="font-semibold text-slate-800">Safari blocking popups?</span> Use direct full-screen sign-in:
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDirectRedirectAuth}
+                      className="px-3 py-1 bg-sky-700 hover:bg-sky-800 text-white text-xs font-semibold rounded transition shadow-2xs shrink-0 flex items-center gap-1"
+                    >
+                      <span>Sign In Full-Screen (No Popups) &rarr;</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
