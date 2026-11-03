@@ -65,19 +65,32 @@ class GoogleDriveService {
   }
 
   public loadConfig(): GoogleDriveConfig {
+    const envClientId = (import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID || '').trim();
+    const envAccessToken = (import.meta.env.VITE_GOOGLE_DRIVE_ACCESS_TOKEN || '').trim();
+    const envRootFolder = (import.meta.env.VITE_GOOGLE_DRIVE_ROOT_FOLDER || '').trim();
+
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        return {
+          ...parsed,
+          clientId: parsed.clientId || envClientId,
+          accessToken: parsed.accessToken || envAccessToken,
+          rootFolderId: parsed.rootFolderId || envRootFolder,
+          enabled: parsed.enabled !== undefined ? parsed.enabled : Boolean(envAccessToken || envClientId),
+          storageMode: parsed.storageMode || 'google_drive',
+        };
       }
     } catch (e) {
       console.warn('Failed to load Google Drive configuration:', e);
     }
 
     return {
-      enabled: false,
-      clientId: '',
-      rootFolderId: '',
+      enabled: Boolean(envAccessToken || envClientId),
+      clientId: envClientId,
+      accessToken: envAccessToken,
+      rootFolderId: envRootFolder,
       storageMode: 'google_drive',
     };
   }
