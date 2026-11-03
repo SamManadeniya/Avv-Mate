@@ -15,7 +15,8 @@ import {
   Images,
   RefreshCw,
   Film,
-  Plus
+  Plus,
+  HardDrive
 } from 'lucide-react';
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport, DocType } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
@@ -85,9 +86,28 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const [isVideoUploading, setIsVideoUploading] = useState(false);
   const [videoProgress, setVideoProgress] = useState<{ current: number; total: number; percent: number; name: string } | null>(null);
 
+  // Pending files waiting for Google Drive connection
+  const [pendingUpload, setPendingUpload] = useState<{
+    type: 'photos' | 'videos';
+    files: File[];
+  } | null>(null);
+
   // Initialize or reset form
   useEffect(() => {
     if (!isOpen) return;
+
+    // Restore draft if redirected back from Google OAuth
+    const draft = sessionStorage.getItem('avv_mate_active_job_draft');
+    if (draft && !jobToEdit) {
+      try {
+        const parsed = JSON.parse(draft);
+        if (parsed.folderNo) setFolderNo(parsed.folderNo);
+        if (parsed.vin) setVin(parsed.vin);
+        if (parsed.rawId) setRawId(parsed.rawId);
+        if (parsed.mreNo) setMreNo(parsed.mreNo);
+        sessionStorage.removeItem('avv_mate_active_job_draft');
+      } catch (_) {}
+    }
 
     if (jobToEdit) {
       setFolderNo(jobToEdit.folder_no);
@@ -298,25 +318,69 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     }
   };
 
+  // Direct Google Drive Connection & Resume Upload (Prevents popup blocker errors)
+  const handleConnectAndResumeUpload = async (useRedirect = false) => {
+    if (useRedirect) {
+      sessionStorage.setItem('avv_mate_active_job_draft', JSON.stringify({
+        folderNo,
+        vin,
+        rawId,
+        mreNo,
+      }));
+      window.location.href = googleDriveService.getDirectAuthUrl();
+      return;
+    }
+
+    try {
+      setIsSyncingDrive(true);
+      setDriveFeedback('Connecting Google account...');
+      await googleDriveService.requestOAuthToken();
+      setIsDriveConfigured(googleDriveService.isConfigured());
+      setDriveFeedback('✓ Google Drive connected successfully!');
+
+      if (pendingUpload) {
+        const toUpload = pendingUpload;
+        setPendingUpload(null);
+        if (toUpload.type === 'photos') {
+          await executeBatchPhotosUpload(toUpload.files);
+        } else {
+          await executeMultipleVideoUpload(toUpload.files);
+        }
+      }
+    } catch (err: any) {
+      console.error('Drive connection error:', err);
+      setErrorMessage(`Google authorization notice: ${err.message || 'Please use Login via Redirect'}`);
+    } finally {
+      setIsSyncingDrive(false);
+    }
+  };
+
   // Batch Photos Upload Handler (30–80+ photos)
   const handleBatchPhotosUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const filesArray = Array.from(files);
+    setErrorMessage('');
+    setDriveFeedback(null);
+
+    // If Google Drive token is not yet active on this browser, queue and prompt without blocking
+    if (googleDriveService.isConfigured() && !googleDriveService.isTokenValid()) {
+      setPendingUpload({ type: 'photos', files: filesArray });
+      return;
+    }
+
+    await executeBatchPhotosUpload(filesArray);
+  };
+
+  const executeBatchPhotosUpload = async (filesArray: File[]) => {
     setIsBatchUploading(true);
     setErrorMessage('');
     setDriveFeedback(null);
 
     try {
-      if (googleDriveService.isConfigured() && !googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
-        setDriveFeedback('Authorizing Google Drive...');
-        await googleDriveService.requestOAuthToken();
-        setIsDriveConfigured(googleDriveService.isConfigured());
-      }
-
       let targetHierarchy = driveHierarchy;
       if (!targetHierarchy || !targetHierarchy.photosFolder?.id) {
         try {
-          if (googleDriveService.isConfigured()) {
+          if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
             targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo, false);
           } else {
             targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
@@ -332,7 +396,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       const newTotal = batchPhotosCount + filesArray.length;
       setBatchPhotosCount(newTotal);
 
-      if (googleDriveService.isConfigured() && targetHierarchy?.photosFolder?.id) {
+      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy?.photosFolder?.id && !targetHierarchy.photosFolder.id.startsWith('demo_')) {
         try {
           const uploaded = await googleDriveService.uploadBatch(
             targetHierarchy.photosFolder.id,
@@ -387,21 +451,28 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const handleMultipleVideoUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const filesArray = Array.from(files);
+    setErrorMessage('');
+    setDriveFeedback(null);
+
+    // If Google Drive token is not yet active on this browser, queue and prompt without blocking
+    if (googleDriveService.isConfigured() && !googleDriveService.isTokenValid()) {
+      setPendingUpload({ type: 'videos', files: filesArray });
+      return;
+    }
+
+    await executeMultipleVideoUpload(filesArray);
+  };
+
+  const executeMultipleVideoUpload = async (filesArray: File[]) => {
     setIsVideoUploading(true);
     setErrorMessage('');
     setDriveFeedback(null);
 
     try {
-      if (googleDriveService.isConfigured() && !googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
-        setDriveFeedback('Authorizing Google Drive...');
-        await googleDriveService.requestOAuthToken();
-        setIsDriveConfigured(googleDriveService.isConfigured());
-      }
-
       let targetHierarchy = driveHierarchy;
       if (!targetHierarchy || !targetHierarchy.videosFolder?.id) {
         try {
-          if (googleDriveService.isConfigured()) {
+          if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
             targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo, false);
           } else {
             targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
@@ -414,7 +485,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
       const totalVideos = filesArray.length;
       const uploadedList: Array<{ id?: string; name: string; size?: number; webViewLink: string }> = [];
-      const isDriveActive = Boolean(googleDriveService.isConfigured() && targetHierarchy?.videosFolder?.id && !targetHierarchy.videosFolder.id.startsWith('demo_'));
+      const isDriveActive = Boolean(googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy?.videosFolder?.id && !targetHierarchy.videosFolder.id.startsWith('demo_'));
 
       for (let i = 0; i < totalVideos; i++) {
         const file = filesArray[i];
@@ -785,26 +856,25 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
                 <div className="flex items-center gap-2">
                   {!googleDriveService.isTokenValid() && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          setIsSyncingDrive(true);
-                          setDriveFeedback('Connecting Google account...');
-                          await googleDriveService.requestOAuthToken();
-                          setIsDriveConfigured(googleDriveService.isConfigured());
-                          await handleInitializeDrive();
-                        } catch (err: any) {
-                          setDriveFeedback(`Drive auth notice: ${err.message}`);
-                        } finally {
-                          setIsSyncingDrive(false);
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded transition shadow-2xs"
-                      title="Authorize Google Drive on this browser"
-                    >
-                      <span>Connect Drive</span>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleConnectAndResumeUpload(false)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-300 rounded transition shadow-2xs cursor-pointer"
+                        title="Authorize Google Drive on this browser"
+                      >
+                        <HardDrive className="w-3.5 h-3.5" />
+                        <span>Connect Drive</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleConnectAndResumeUpload(true)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded transition cursor-pointer"
+                        title="Direct login if Safari blocks popups"
+                      >
+                        <span>Redirect</span>
+                      </button>
+                    </div>
                   )}
                   {(() => {
                     const rawLink = driveHierarchy?.vehicleFolder.webViewLink;
@@ -844,6 +914,42 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Pending Upload Drive Authorization Banner */}
+            {pendingUpload && (
+              <div className="p-3.5 bg-amber-50 border-2 border-amber-300 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
+                <div className="flex items-start gap-2.5">
+                  <div className="p-2 bg-amber-100 text-amber-800 rounded-lg shrink-0 mt-0.5">
+                    <HardDrive className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 className="font-bold text-amber-950 text-xs sm:text-sm">
+                      {pendingUpload.files.length} {pendingUpload.type === 'photos' ? 'Photos' : 'Videos'} Ready to Upload
+                    </h5>
+                    <p className="text-amber-800 text-[11px] mt-0.5">
+                      Google Drive must be connected on this browser to upload directly to AVV Mate Drive. Click below to sign in:
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => handleConnectAndResumeUpload(false)}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg shadow-xs text-xs transition cursor-pointer"
+                  >
+                    Sign In & Upload
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleConnectAndResumeUpload(true)}
+                    className="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold rounded-lg text-[11px] transition cursor-pointer"
+                    title="Bypasses browser popup blockers completely by redirecting to Google Sign-In"
+                  >
+                    Login via Redirect
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* 8 Document Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

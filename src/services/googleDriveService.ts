@@ -324,7 +324,13 @@ class GoogleDriveService {
           error_callback: (error: any) => {
             hasResponded = true;
             clearTimeout(timer);
-            reject(new Error(error?.message || 'Google authentication encountered an error.'));
+            const msg = error?.message || '';
+            const errType = error?.type || '';
+            if (errType === 'popup_failed_to_open' || msg.includes('popup') || msg.includes('Failed to open popup window')) {
+              reject(new Error('Browser popup blocked. Please click "Login via Redirect" or allow popups in your browser settings for this site.'));
+              return;
+            }
+            reject(new Error(msg || 'Google authentication encountered an error.'));
           }
         });
 
