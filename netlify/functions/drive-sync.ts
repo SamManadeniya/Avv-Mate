@@ -4,7 +4,7 @@
  */
 
 interface RequestBody {
-  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile' | 'initiateResumableUpload' | 'listFiles';
+  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile' | 'initiateResumableUpload' | 'listFiles' | 'getOrCreateMasterSpreadsheet' | 'syncMasterSpreadsheet' | 'readMasterSpreadsheet';
   folderNo?: string;
   parentFolderId?: string;
   folderId?: string;
@@ -12,6 +12,14 @@ interface RequestBody {
   mimeType?: string;
   fileSize?: number;
   base64Data?: string;
+  spreadsheetId?: string;
+  spreadsheetTitle?: string;
+  tablesData?: {
+    jobs?: any[];
+    vehicles?: any[];
+    workshops?: any[];
+    modelReports?: any[];
+  };
   hierarchy?: {
     docsFolder?: { id: string };
     photosFolder?: { id: string };
@@ -611,6 +619,443 @@ export const handler = async (event: any) => {
         body: JSON.stringify({
           success: true,
           files: listData.files || [],
+        }),
+      };
+    }
+
+    if (payload.action === 'getOrCreateMasterSpreadsheet') {
+      const parentFolderId = cleanDriveFolderId(payload.parentFolderId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5');
+      const title = payload.spreadsheetTitle || 'AVV Mate Master Database';
+
+      // 1. Search if already exists in parent folder or drive
+      try {
+        const searchQ = `name='${title.replace(/'/g, "\\'")}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+        const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(searchQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,webViewLink,parents)`;
+        const searchRes = await fetch(searchUrl, { headers: { Authorization: `Bearer ${token}` } });
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const existing = (searchData.files || [])[0];
+          if (existing) {
+            if (parentFolderId && (!existing.parents || !existing.parents.includes(parentFolderId))) {
+              const moveUrl = `https://www.googleapis.com/drive/v3/files/${existing.id}?addParents=${parentFolderId}&supportsAllDrives=true`;
+              await fetch(moveUrl, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+            }
+            return {
+              statusCode: 200,
+              headers,
+              body: JSON.stringify({
+                success: true,
+                created: false,
+                spreadsheetId: existing.id,
+                title: existing.name,
+                webViewLink: existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`,
+              }),
+            };
+          }
+        }
+      } catch (err) {
+        console.warn('Error searching for master spreadsheet:', err);
+      }
+
+      // 2. Create the 4-tab spreadsheet via Google Sheets API
+      const createUrl = 'https://sheets.googleapis.com/v4/spreadsheets';
+      const sheetTabs = [
+        { properties: { title: 'Compliance_Jobs', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'Vehicles', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'RAW_Workshops', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'Model_Reports', gridProperties: { frozenRowCount: 1 } } },
+      ];
+
+      const createRes = await fetch(createUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          properties: { title },
+          sheets: sheetTabs,
+        }),
+      });
+
+      if (!createRes.ok) {
+        const errText = await createRes.text();
+        return {
+          statusCode: createRes.status,
+          headers,
+          body: JSON.stringify({ error: `Failed to create Google Spreadsheet: ${errText}` }),
+        };
+      }
+
+      const createData = await createRes.json();
+      const spreadsheetId = createData.spreadsheetId;
+
+      // 3. Move spreadsheet into root AVV Mate Drive folder
+      if (parentFolderId) {
+        try {
+          const moveUrl = `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${parentFolderId}&supportsAllDrives=true`;
+          await fetch(moveUrl, {
+            method: 'PATCH',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+        } catch (moveErr) {
+          console.warn('Failed moving spreadsheet to root folder:', moveErr);
+        }
+      }
+
+      // 4. Initialize Header Rows with stylish styling
+      const headersPayload = {
+        valueInputOption: 'USER_ENTERED',
+        data: [
+          {
+            range: 'Compliance_Jobs!A1:R1',
+            values: [
+              [
+                'Folder #', 'VIN', 'RAW ID', 'RAW Workshop Name', 'MRE #',
+                'Make', 'Model', 'Build Date', 'VIA #', 'Request Received',
+                'AVV Verification Date', 'RAV Date of Entry', 'Status',
+                'Docs Uploaded', 'Google Drive Folder', 'Inspection Videos',
+                'Error Note', 'Created At'
+              ]
+            ]
+          },
+          {
+            range: 'Vehicles!A1:J1',
+            values: [
+              [
+                'VIN', 'Build Date', 'VIA #', 'RAW ID', 'RAW Workshop Name',
+                'MRE #', 'Make', 'Model', 'Created At', 'Updated At'
+              ]
+            ]
+          },
+          {
+            range: 'RAW_Workshops!A1:G1',
+            values: [
+              [
+                'RAW ID', 'Name', 'Contact Email', 'Contact Phone',
+                'Total Vehicles', 'Created At', 'Updated At'
+              ]
+            ]
+          },
+          {
+            range: 'Model_Reports!A1:L1',
+            values: [
+              [
+                'MRE #', 'Make', 'Model', 'SEV #', 'Category (VCC)',
+                'Build From', 'Build To', 'Tare (kg)', 'Power (kW)', 'Seats',
+                'Author', 'Created At'
+              ]
+            ]
+          }
+        ]
+      };
+
+      try {
+        await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(headersPayload),
+        });
+
+        // Format header rows (navy background, white bold text)
+        const formatRequests = (createData.sheets || []).map((s: any) => ({
+          repeatCell: {
+            range: { sheetId: s.properties?.sheetId ?? 0, startRowIndex: 0, endRowIndex: 1 },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 0.05, green: 0.25, blue: 0.45 },
+                textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true, fontSize: 10 }
+              }
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat)'
+          }
+        }));
+
+        if (formatRequests.length > 0) {
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ requests: formatRequests }),
+          });
+        }
+      } catch (formatErr) {
+        console.warn('Header formatting skipped:', formatErr);
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          created: true,
+          spreadsheetId,
+          title,
+          webViewLink: createData.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+        }),
+      };
+    }
+
+    if (payload.action === 'syncMasterSpreadsheet') {
+      const spreadsheetId = payload.spreadsheetId;
+      const tables = payload.tablesData || {};
+      if (!spreadsheetId) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'spreadsheetId is required' }) };
+      }
+
+      const updateData: Array<{ range: string; values: any[][] }> = [];
+
+      // 1. Compliance_Jobs
+      if (Array.isArray(tables.jobs)) {
+        const jobRows: any[][] = [
+          [
+            'Folder #', 'VIN', 'RAW ID', 'RAW Workshop Name', 'MRE #',
+            'Make', 'Model', 'Build Date', 'VIA #', 'Request Received',
+            'AVV Verification Date', 'RAV Date of Entry', 'Status',
+            'Docs Uploaded', 'Google Drive Folder', 'Inspection Videos',
+            'Error Note', 'Created At'
+          ]
+        ];
+
+        tables.jobs.forEach((j: any, idx: number) => {
+          const rowNum = idx + 2;
+          const folderUrl = j.folder_url || (j.folder_no ? `https://drive.google.com/drive/search?q=${j.folder_no}` : '');
+          const driveCell = folderUrl ? `=HYPERLINK("${folderUrl}", "${j.folder_no}")` : (j.folder_no || '');
+          const videosCell = j.videos_url ? `=HYPERLINK("${j.videos_url}", "Watch Videos")` : '';
+          const workshopFormula = `=IFERROR(XLOOKUP(C${rowNum}, RAW_Workshops!A:A, RAW_Workshops!B:B), "${(j.raw_workshop_name || '').replace(/"/g, '""')}")`;
+
+          jobRows.push([
+            j.folder_no || '',
+            j.vin || '',
+            j.raw_id || '',
+            workshopFormula,
+            j.mre_no || '',
+            j.make || '',
+            j.model || '',
+            j.build_date || '',
+            j.via_no || '',
+            j.request_received || '',
+            j.avv_verification_date || '',
+            j.rav_date_of_entry || '',
+            j.status || 'in_progress',
+            j.uploaded_docs_count !== undefined ? `${j.uploaded_docs_count}/8` : (j.is_documents_complete ? '8/8 Complete' : 'Pending'),
+            driveCell,
+            videosCell,
+            j.error_note || '',
+            j.created_at || new Date().toISOString()
+          ]);
+        });
+
+        updateData.push({ range: 'Compliance_Jobs!A1:R', values: jobRows });
+      }
+
+      // 2. Vehicles
+      if (Array.isArray(tables.vehicles)) {
+        const vehicleRows: any[][] = [
+          [
+            'VIN', 'Build Date', 'VIA #', 'RAW ID', 'RAW Workshop Name',
+            'MRE #', 'Make', 'Model', 'Created At', 'Updated At'
+          ]
+        ];
+
+        tables.vehicles.forEach((v: any, idx: number) => {
+          const rowNum = idx + 2;
+          const workshopFormula = `=IFERROR(XLOOKUP(D${rowNum}, RAW_Workshops!A:A, RAW_Workshops!B:B), "${(v.raw_workshop_name || '').replace(/"/g, '""')}")`;
+          vehicleRows.push([
+            v.vin || '',
+            v.build_date || '',
+            v.via_no || '',
+            v.raw_id || '',
+            workshopFormula,
+            v.mre_no || '',
+            v.make || '',
+            v.model || '',
+            v.created_at || '',
+            v.updated_at || ''
+          ]);
+        });
+
+        updateData.push({ range: 'Vehicles!A1:J', values: vehicleRows });
+      }
+
+      // 3. RAW_Workshops
+      if (Array.isArray(tables.workshops)) {
+        const workshopRows: any[][] = [
+          [
+            'RAW ID', 'Name', 'Contact Email', 'Contact Phone',
+            'Total Vehicles', 'Created At', 'Updated At'
+          ]
+        ];
+
+        tables.workshops.forEach((w: any, idx: number) => {
+          const rowNum = idx + 2;
+          const countFormula = `=COUNTIF(Vehicles!D:D, A${rowNum})`;
+          workshopRows.push([
+            w.raw_id || '',
+            w.name || '',
+            w.contact_email || '',
+            w.contact_phone || '',
+            countFormula,
+            w.created_at || '',
+            w.updated_at || ''
+          ]);
+        });
+
+        updateData.push({ range: 'RAW_Workshops!A1:G', values: workshopRows });
+      }
+
+      // 4. Model_Reports
+      if (Array.isArray(tables.modelReports)) {
+        const reportRows: any[][] = [
+          [
+            'MRE #', 'Make', 'Model', 'SEV #', 'Category (VCC)',
+            'Build From', 'Build To', 'Tare (kg)', 'Power (kW)', 'Seats',
+            'Author', 'Created At'
+          ]
+        ];
+
+        tables.modelReports.forEach((r: any) => {
+          reportRows.push([
+            r.mre_no || '',
+            r.make || '',
+            r.model || '',
+            r.sev_no || '',
+            r.vcc || '',
+            r.build_from || '',
+            r.build_to || '',
+            r.tare_kg || '',
+            r.power_kw || '',
+            r.seats || '',
+            r.author || '',
+            r.created_at || ''
+          ]);
+        });
+
+        updateData.push({ range: 'Model_Reports!A1:L', values: reportRows });
+      }
+
+      if (updateData.length > 0) {
+        const writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            valueInputOption: 'USER_ENTERED',
+            data: updateData,
+          }),
+        });
+
+        if (!writeRes.ok) {
+          const errText = await writeRes.text();
+          return { statusCode: writeRes.status, headers, body: JSON.stringify({ error: `Failed to write sheet values: ${errText}` }) };
+        }
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          syncedTabs: updateData.map(d => d.range.split('!')[0]),
+          spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+        }),
+      };
+    }
+
+    if (payload.action === 'readMasterSpreadsheet') {
+      const spreadsheetId = payload.spreadsheetId;
+      if (!spreadsheetId) {
+        return { statusCode: 400, headers, body: JSON.stringify({ error: 'spreadsheetId is required' }) };
+      }
+
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:R&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:L`;
+      const readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (!readRes.ok) {
+        const errText = await readRes.text();
+        return { statusCode: readRes.status, headers, body: JSON.stringify({ error: `Failed to read spreadsheet: ${errText}` }) };
+      }
+
+      const readData = await readRes.json();
+      const ranges = readData.valueRanges || [];
+
+      // Range 0: Compliance_Jobs
+      const jobsRaw = ranges[0]?.values || [];
+      const jobs = jobsRaw.slice(1).filter((r: any[]) => r[0] && r[1]).map((r: any[], i: number) => ({
+        id: `job_sheet_${r[0] || i}`,
+        folder_no: r[0] || '',
+        vin: r[1] || '',
+        raw_id: r[2] || null,
+        raw_workshop_name: r[3] || null,
+        mre_no: r[4] || null,
+        make: r[5] || null,
+        model: r[6] || null,
+        build_date: r[7] || null,
+        via_no: r[8] || null,
+        request_received: r[9] || new Date().toISOString().slice(0, 10),
+        avv_verification_date: r[10] || null,
+        rav_date_of_entry: r[11] || null,
+        status: (['in_progress', 'verified', 'rav_entered', 'errored'].includes(r[12]) ? r[12] : 'in_progress'),
+        uploaded_docs_count: parseInt((r[13] || '').split('/')[0], 10) || 0,
+        is_documents_complete: (r[13] || '').includes('8/8') || (r[13] || '').includes('Complete'),
+        videos_url: (r[15] && r[15].includes('http')) ? r[15] : null,
+        error_note: r[16] || null,
+        created_at: r[17] || new Date().toISOString(),
+      }));
+
+      // Range 1: Vehicles
+      const vehiclesRaw = ranges[1]?.values || [];
+      const vehicles = vehiclesRaw.slice(1).filter((r: any[]) => r[0]).map((r: any[]) => ({
+        vin: r[0] || '',
+        build_date: r[1] || '',
+        via_no: r[2] || null,
+        raw_id: r[3] || null,
+        raw_workshop_name: r[4] || null,
+        mre_no: r[5] || null,
+        make: r[6] || null,
+        model: r[7] || null,
+        created_at: r[8] || new Date().toISOString(),
+        updated_at: r[9] || null,
+      }));
+
+      // Range 2: RAW_Workshops
+      const workshopsRaw = ranges[2]?.values || [];
+      const workshops = workshopsRaw.slice(1).filter((r: any[]) => r[0]).map((r: any[]) => ({
+        raw_id: r[0] || '',
+        name: r[1] || '',
+        contact_email: r[2] || null,
+        contact_phone: r[3] || null,
+        total_vehicles: parseInt(r[4], 10) || 0,
+        created_at: r[5] || new Date().toISOString(),
+        updated_at: r[6] || null,
+      }));
+
+      // Range 3: Model_Reports
+      const reportsRaw = ranges[3]?.values || [];
+      const modelReports = reportsRaw.slice(1).filter((r: any[]) => r[0]).map((r: any[]) => ({
+        mre_no: r[0] || '',
+        make: r[1] || '',
+        model: r[2] || '',
+        sev_no: r[3] || null,
+        vcc: r[4] || null,
+        build_from: r[5] || null,
+        build_to: r[6] || null,
+        tare_kg: r[7] ? parseFloat(r[7]) : null,
+        power_kw: r[8] ? parseFloat(r[8]) : null,
+        seats: r[9] ? parseInt(r[9], 10) : null,
+        author: r[10] || null,
+        created_at: r[11] || new Date().toISOString(),
+      }));
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            jobs,
+            vehicles,
+            workshops,
+            modelReports,
+          },
         }),
       };
     }

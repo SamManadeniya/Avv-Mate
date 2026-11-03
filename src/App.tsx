@@ -19,15 +19,22 @@ import { vehicleService } from './services/vehicleService';
 import { workshopService } from './services/workshopService';
 import { modelReportService } from './services/modelReportService';
 import { googleDriveService } from './services/googleDriveService';
+import { googleSheetsService } from './services/googleSheetsService';
 
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport } from './types';
-import { RefreshCw, Database } from 'lucide-react';
+import { RefreshCw, Database, FileSpreadsheet } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('jobs');
   const [isConnected, setIsConnected] = useState(true);
   const [, setIsLoading] = useState(true);
   const [dbSetupNeeded, setDbSetupNeeded] = useState(false);
+
+  // Google Sheets Master Database State (4 Tabs)
+  const [isSheetsPrimary, setIsSheetsPrimary] = useState(() => googleSheetsService.isSheetsPrimary());
+  const [masterSheetUrl, setMasterSheetUrl] = useState<string>(() => googleSheetsService.getMasterSheetUrl());
+  const [isSyncingSheets, setIsSyncingSheets] = useState(false);
+  const [sheetsFeedback, setSheetsFeedback] = useState<string | null>(null);
 
   // Core Data Lists
   const [complianceJobs, setComplianceJobs] = useState<ComplianceJob[]>([]);
@@ -81,9 +88,35 @@ export const App: React.FC = () => {
   } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Load All Data from Supabase
+  // Load All Data from Google Sheets or Supabase
   const loadData = useCallback(async () => {
     setIsLoading(true);
+
+    // 1. If Google Sheets is chosen as Primary Database:
+    if (googleSheetsService.isSheetsPrimary() && googleDriveService.isConfigured()) {
+      try {
+        const sheetData = await googleSheetsService.readAllFromMasterSheet();
+        if (
+          sheetData.jobs.length > 0 ||
+          sheetData.vehicles.length > 0 ||
+          sheetData.workshops.length > 0 ||
+          sheetData.modelReports.length > 0
+        ) {
+          setComplianceJobs(sheetData.jobs);
+          setVehicles(sheetData.vehicles);
+          setWorkshops(sheetData.workshops);
+          setModelReports(sheetData.modelReports);
+          setIsConnected(true);
+          setDbSetupNeeded(false);
+          setIsLoading(false);
+          return;
+        }
+      } catch (sheetErr) {
+        console.warn('Failed reading from Google Sheets Master DB, checking fallback:', sheetErr);
+      }
+    }
+
+    // 2. Query Supabase
     try {
       const [jobsData, vehiclesData, workshopsData, reportsData] = await Promise.allSettled([
         complianceJobService.getAll(),
@@ -95,31 +128,69 @@ export const App: React.FC = () => {
       let hasSuccess = false;
       let hasTableMissingError = false;
 
+      let currentJobs: ComplianceJob[] = [];
+      let currentVehicles: Vehicle[] = [];
+      let currentWorkshops: RawWorkshop[] = [];
+      let currentReports: ModelReport[] = [];
+
       if (jobsData.status === 'fulfilled') {
-        setComplianceJobs(jobsData.value);
+        currentJobs = jobsData.value;
+        setComplianceJobs(currentJobs);
         hasSuccess = true;
       } else if (jobsData.reason?.message?.includes('Could not find the table')) {
         hasTableMissingError = true;
       }
 
       if (vehiclesData.status === 'fulfilled') {
-        setVehicles(vehiclesData.value);
+        currentVehicles = vehiclesData.value;
+        setVehicles(currentVehicles);
         hasSuccess = true;
       } else if (vehiclesData.reason?.message?.includes('Could not find the table')) {
         hasTableMissingError = true;
       }
 
       if (workshopsData.status === 'fulfilled') {
-        setWorkshops(workshopsData.value);
+        currentWorkshops = workshopsData.value;
+        setWorkshops(currentWorkshops);
         hasSuccess = true;
       }
 
       if (reportsData.status === 'fulfilled') {
-        setModelReports(reportsData.value);
+        currentReports = reportsData.value;
+        setModelReports(currentReports);
         hasSuccess = true;
       }
 
-      if (hasTableMissingError) {
+      // If Supabase is offline/missing, fallback to Google Sheets Master Database!
+      if (!hasSuccess && googleDriveService.isConfigured()) {
+        try {
+          const sheetData = await googleSheetsService.readAllFromMasterSheet();
+          if (
+            sheetData.jobs.length > 0 ||
+            sheetData.vehicles.length > 0 ||
+            sheetData.workshops.length > 0 ||
+            sheetData.modelReports.length > 0
+          ) {
+            setComplianceJobs(sheetData.jobs);
+            setVehicles(sheetData.vehicles);
+            setWorkshops(sheetData.workshops);
+            setModelReports(sheetData.modelReports);
+            setIsConnected(true);
+            setDbSetupNeeded(false);
+            setIsLoading(false);
+            return;
+          }
+        } catch (_) {}
+      }
+
+      // If Supabase loaded and Google Drive is connected, initialize master sheet URL in background
+      if (hasSuccess && googleDriveService.isConfigured()) {
+        googleSheetsService.getMasterSpreadsheet().then(info => {
+          setMasterSheetUrl(info.webViewLink);
+        }).catch(() => {});
+      }
+
+      if (hasTableMissingError && !googleSheetsService.isSheetsPrimary()) {
         setDbSetupNeeded(true);
       } else {
         setDbSetupNeeded(false);
@@ -127,8 +198,22 @@ export const App: React.FC = () => {
 
       setIsConnected(hasSuccess);
     } catch (err) {
-      console.error('Failed to load Supabase data:', err);
-      setIsConnected(false);
+      console.error('Failed to load data:', err);
+      if (googleDriveService.isConfigured()) {
+        try {
+          const sheetData = await googleSheetsService.readAllFromMasterSheet();
+          setComplianceJobs(sheetData.jobs);
+          setVehicles(sheetData.vehicles);
+          setWorkshops(sheetData.workshops);
+          setModelReports(sheetData.modelReports);
+          setIsConnected(true);
+          setDbSetupNeeded(false);
+        } catch (_) {
+          setIsConnected(false);
+        }
+      } else {
+        setIsConnected(false);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -223,22 +308,103 @@ export const App: React.FC = () => {
     });
   };
 
+  // Handlers for Google Sheets Master Database
+  const handleMasterSheetOpen = async () => {
+    try {
+      const info = await googleSheetsService.getMasterSpreadsheet();
+      setMasterSheetUrl(info.webViewLink);
+      window.open(info.webViewLink, '_blank');
+    } catch (err: any) {
+      console.error('Error opening master sheet:', err);
+      window.open('https://docs.google.com/spreadsheets', '_blank');
+    }
+  };
+
+  const handleSyncAllToSheets = async () => {
+    setIsSyncingSheets(true);
+    setSheetsFeedback('Syncing all 4 tables into Master Google Sheet...');
+    try {
+      const result = await googleSheetsService.syncAllDataToMasterSheet(
+        complianceJobs,
+        vehicles,
+        workshops,
+        modelReports
+      );
+      setMasterSheetUrl(result.spreadsheetUrl);
+      setSheetsFeedback('✓ Synced all 4 tabs (Compliance_Jobs, Vehicles, RAW_Workshops, Model_Reports) in AVV Mate Master Database!');
+      setTimeout(() => setSheetsFeedback(null), 6000);
+    } catch (err: any) {
+      console.error(err);
+      setSheetsFeedback(`Sheet sync failed: ${err.message || 'Error'}`);
+      setTimeout(() => setSheetsFeedback(null), 6000);
+    } finally {
+      setIsSyncingSheets(false);
+    }
+  };
+
+  const handleToggleDbMode = (useSheets: boolean) => {
+    googleSheetsService.setSheetsPrimary(useSheets);
+    setIsSheetsPrimary(useSheets);
+    loadData();
+    setSheetsFeedback(
+      useSheets
+        ? '✓ Switched to Google Sheets as Primary Database (Supabase bypassed).'
+        : '✓ Switched to Supabase as Primary Database.'
+    );
+    setTimeout(() => setSheetsFeedback(null), 5000);
+  };
+
   // Confirm Delete Action
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      if (deleteTarget.type === 'job') {
-        await complianceJobService.delete(deleteTarget.id);
-      } else if (deleteTarget.type === 'vehicle') {
-        await vehicleService.delete(deleteTarget.id);
-      } else if (deleteTarget.type === 'workshop') {
-        await workshopService.delete(deleteTarget.id);
-      } else if (deleteTarget.type === 'report') {
-        await modelReportService.delete(deleteTarget.id);
+      if (!isSheetsPrimary) {
+        if (deleteTarget.type === 'job') {
+          await complianceJobService.delete(deleteTarget.id);
+        } else if (deleteTarget.type === 'vehicle') {
+          await vehicleService.delete(deleteTarget.id);
+        } else if (deleteTarget.type === 'workshop') {
+          await workshopService.delete(deleteTarget.id);
+        } else if (deleteTarget.type === 'report') {
+          await modelReportService.delete(deleteTarget.id);
+        }
       }
+
+      // Update state in memory
+      let newJobs = complianceJobs;
+      let newVehicles = vehicles;
+      let newWorkshops = workshops;
+      let newReports = modelReports;
+
+      if (deleteTarget.type === 'job') {
+        newJobs = complianceJobs.filter(j => j.id !== deleteTarget.id && j.folder_no !== deleteTarget.id);
+        setComplianceJobs(newJobs);
+      } else if (deleteTarget.type === 'vehicle') {
+        newVehicles = vehicles.filter(v => v.vin !== deleteTarget.id);
+        setVehicles(newVehicles);
+      } else if (deleteTarget.type === 'workshop') {
+        newWorkshops = workshops.filter(w => w.raw_id !== deleteTarget.id);
+        setWorkshops(newWorkshops);
+      } else if (deleteTarget.type === 'report') {
+        newReports = modelReports.filter(r => r.mre_no !== deleteTarget.id);
+        setModelReports(newReports);
+      }
+
+      // Auto-sync update to Master Google Sheet
+      if (googleDriveService.isConfigured()) {
+        googleSheetsService.syncAllDataToMasterSheet(
+          newJobs,
+          newVehicles,
+          newWorkshops,
+          newReports
+        ).catch(e => console.warn('Background Sheets sync on delete:', e));
+      }
+
       setDeleteTarget(null);
-      await loadData();
+      if (!isSheetsPrimary) {
+        await loadData();
+      }
     } catch (err: any) {
       alert(`Delete failed: ${err.message || 'Error deleting item'}`);
     } finally {
@@ -254,6 +420,12 @@ export const App: React.FC = () => {
         onTabChange={setActiveTab}
         onNewJobClick={handleNewJob}
         onDriveConfigClick={() => setIsDriveConfigOpen(true)}
+        onMasterSheetClick={handleMasterSheetOpen}
+        masterSheetUrl={masterSheetUrl}
+        onSyncAllToSheets={handleSyncAllToSheets}
+        isSyncingSheets={isSyncingSheets}
+        isSheetsPrimary={isSheetsPrimary}
+        onToggleDbMode={handleToggleDbMode}
         counts={{
           jobs: complianceJobs.length,
           vehicles: vehicles.length,
@@ -263,6 +435,28 @@ export const App: React.FC = () => {
         isConnected={isConnected}
         isDriveConnected={isDriveConnected}
       />
+
+      {/* Sheets Sync & Notification Banner */}
+      {sheetsFeedback && (
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-3 w-full animate-in fade-in">
+          <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-lg flex items-center justify-between gap-3 text-xs text-emerald-950 font-medium shadow-2xs">
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span>{sheetsFeedback}</span>
+            </div>
+            {masterSheetUrl && (
+              <a
+                href={masterSheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-bold text-emerald-800 hover:text-emerald-950 underline shrink-0"
+              >
+                <span>Open Master Sheet &rarr;</span>
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Database Setup Alert Banner if tables need migration */}
       {dbSetupNeeded && (

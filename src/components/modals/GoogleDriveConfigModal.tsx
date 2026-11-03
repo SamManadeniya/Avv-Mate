@@ -12,9 +12,13 @@ import {
   LogOut,
   FolderCheck,
   ShieldCheck,
-  Zap
+  Zap,
+  FileSpreadsheet,
+  ExternalLink,
+  Check
 } from 'lucide-react';
 import { googleDriveService, type GoogleDriveConfig } from '../../services/googleDriveService';
+import { googleSheetsService } from '../../services/googleSheetsService';
 
 interface GoogleDriveConfigModalProps {
   isOpen: boolean;
@@ -45,6 +49,7 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
 
   const [showHelp, setShowHelp] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [sheetsPrimaryState, setSheetsPrimaryState] = useState(() => googleSheetsService.isSheetsPrimary());
 
   useEffect(() => {
     if (!isOpen) return;
@@ -54,6 +59,7 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
     setAccessToken(c.accessToken || '');
     setRootFolderInput(c.rootFolderId || '');
     setStorageMode(c.storageMode || 'google_drive');
+    setSheetsPrimaryState(googleSheetsService.isSheetsPrimary());
     setTestResult(null);
     setSaveSuccess(false);
   }, [isOpen]);
@@ -429,24 +435,91 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
             </div>
           )}
 
+          {/* Master Google Spreadsheet Database Architecture Card */}
+          <div className="bg-emerald-50/70 p-4 rounded-xl border border-emerald-200 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-950 flex items-center gap-1.5 font-display">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
+                1 Master Google Sheet • 4 Database Tabs
+              </span>
+              <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 font-mono">
+                Auto-Synced in AVV Mate Drive
+              </span>
+            </div>
+
+            <p className="text-xs text-emerald-900 leading-relaxed">
+              Consolidates all system data into a single spreadsheet named <strong className="font-semibold text-emerald-950">AVV Mate Master Database</strong> with 4 dedicated tabs:
+              <br />
+              <span className="font-mono text-[11px] text-emerald-800">
+                📑 Compliance_Jobs • 📑 Vehicles • 📑 RAW_Workshops • 📑 Model_Reports
+              </span>
+            </p>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const info = await googleSheetsService.getMasterSpreadsheet();
+                    window.open(info.webViewLink, '_blank');
+                  } catch (e: any) {
+                    alert(e.message || 'Error opening Master Sheet');
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-md shadow-2xs transition cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Master Database in Drive</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const nextPrimary = !sheetsPrimaryState;
+                  googleSheetsService.setSheetsPrimary(nextPrimary);
+                  setSheetsPrimaryState(nextPrimary);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border transition cursor-pointer ${
+                  sheetsPrimaryState
+                    ? 'bg-emerald-200/90 text-emerald-950 border-emerald-400 font-bold'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                }`}
+                title="Bypass Supabase completely and use Google Sheets as primary database"
+              >
+                <Check className={`w-3.5 h-3.5 ${sheetsPrimaryState ? 'text-emerald-800' : 'text-slate-400'}`} />
+                <span>{sheetsPrimaryState ? 'Sheets DB Active (Supabase Bypassed)' : 'Enable Sheets as Primary DB'}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Automated Folder Hierarchy Visualizer */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5 font-display">
                 <FolderTree className="w-3.5 h-3.5 text-sky-700" />
-                Automated Vehicle Directory Tree
+                Automated Google Drive Architecture
               </span>
               <span className="text-[10px] text-slate-500 font-mono">
-                Auto-generated per vehicle
+                1 Root Folder Structure
               </span>
             </div>
 
             <div className="font-mono text-xs text-slate-700 bg-white p-3 rounded-lg border border-slate-200 space-y-1">
               <div className="flex items-center gap-1.5 text-slate-900 font-bold">
                 <FolderCheck className="w-4 h-4 text-emerald-600" />
-                <span>📁 {rootFolderInput ? (googleDriveService.cleanFolderId(rootFolderInput).slice(0, 16) + '…') : 'Drive Root'}</span>
+                <span>📁 {rootFolderInput ? (googleDriveService.cleanFolderId(rootFolderInput).slice(0, 16) + '…') : 'AVV Mate Drive'}</span>
               </div>
-              <div className="pl-5 flex items-center gap-1.5 text-sky-800 font-bold">
+              <div className="pl-5 flex items-center gap-1.5 text-emerald-800 font-bold">
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>📊 AVV Mate Master Database (Google Sheet: 4 Tabs)</span>
+              </div>
+              <div className="pl-10 text-[10px] text-slate-500 space-y-0.5">
+                <div>├── 📑 Tab 1: Compliance_Jobs (Folder #, VIN, RAW ID, Workshop, MRE, Status, Drive Link)</div>
+                <div>├── 📑 Tab 2: Vehicles (VIN, Build Date, VIA #, Make, Model)</div>
+                <div>├── 📑 Tab 3: RAW_Workshops (RAW ID, Name, State, Contact, Email)</div>
+                <div>└── 📑 Tab 4: Model_Reports (MRE #, Make, Model, SEV #)</div>
+              </div>
+              <div className="pl-5 flex items-center gap-1.5 text-sky-800 font-bold pt-1">
                 <span>└── 📁 SVC1028 (Vehicle Folder)</span>
               </div>
               <div className="pl-10 flex items-center gap-1.5 text-slate-600">
