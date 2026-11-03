@@ -799,8 +799,166 @@ class GoogleDriveService {
   }
 
   /**
+   * Uploads large files (e.g. inspection videos 10MB–500MB+) using Google Drive Resumable Upload.
+   * Completely bypasses Netlify payload size limits and browser CORS issues.
+   */
+  public async uploadResumableFile(
+    folderId: string,
+    file: File,
+    onProgress?: (percent: number) => void
+  ): Promise<DriveUploadedFile> {
+    const token = this.config.accessToken;
+    if (!token) throw new Error('Google Drive access token is not set.');
+
+    const cleanParent = this.cleanFolderId(folderId);
+
+    // Step 1: Initiate session via Netlify function (tiny JSON payload < 1KB)
+    onProgress?.(10);
+    const initRes = await fetch('/api/drive-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'initiateResumableUpload',
+        folderId: cleanParent,
+        name: file.name,
+        mimeType: file.type || 'video/mp4',
+        fileSize: file.size,
+        accessToken: token,
+      }),
+    });
+
+    if (!initRes.ok) {
+      const errJson = await initRes.json().catch(() => ({}));
+      throw new Error(errJson.error || `Failed to initiate video upload session (${initRes.status})`);
+    }
+
+    const initData = await initRes.json();
+    if (initData.alreadyExisted && initData.uploaded) {
+      onProgress?.(100);
+      return {
+        id: initData.uploaded.id,
+        name: initData.uploaded.name,
+        mimeType: file.type || 'video/mp4',
+        size: file.size,
+        webViewLink: initData.uploaded.webViewLink || `https://drive.google.com/file/d/${initData.uploaded.id}/view`,
+      };
+    }
+
+    const uploadUrl = initData.uploadUrl;
+    if (!uploadUrl) {
+      throw new Error('Google Drive did not return a session upload URL.');
+    }
+
+    // Step 2: Stream binary bytes directly from browser to Google's resumable session URL
+    // Google Drive resumable session URLs natively support CORS (Access-Control-Allow-Origin: *)
+    onProgress?.(25);
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', uploadUrl, true);
+      xhr.setRequestHeader('Content-Type', file.type || 'video/mp4');
+
+      if (xhr.upload) {
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable) {
+            const pct = Math.min(99, Math.round(25 + (evt.loaded / evt.total) * 74));
+            onProgress?.(pct);
+          }
+        };
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress?.(100);
+          try {
+            const resJson = JSON.parse(xhr.responseText || '{}');
+            resolve({
+              id: resJson.id,
+              name: resJson.name || file.name,
+              mimeType: resJson.mimeType || file.type || 'video/mp4',
+              size: file.size,
+              webViewLink: resJson.webViewLink || `https://drive.google.com/file/d/${resJson.id}/view`,
+            });
+          } catch (_) {
+            resolve({
+              id: 'uploaded_video_' + Date.now(),
+              name: file.name,
+              mimeType: file.type || 'video/mp4',
+              size: file.size,
+              webViewLink: `https://drive.google.com/drive/folders/${cleanParent}`,
+            });
+          }
+        } else {
+          reject(new Error(`Video upload to Google Drive failed (${xhr.status}): ${xhr.responseText}`));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network connection error during Google Drive video upload.'));
+      };
+
+      xhr.send(file);
+    });
+  }
+
+  /**
+   * Lists files inside a specific Google Drive folder.
+   * Uses serverless proxy first to avoid browser CORS issues.
+   */
+  public async listFolderFiles(
+    folderId: string
+  ): Promise<Array<{ id: string; name: string; mimeType: string; size?: number; webViewLink: string }>> {
+    const cleanId = this.cleanFolderId(folderId);
+    const token = this.config.accessToken;
+    if (!token) return [];
+
+    // 1. Try serverless proxy first
+    try {
+      const res = await fetch('/api/drive-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'listFiles',
+          folderId: cleanId,
+          accessToken: token,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.files || []).map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          size: f.size ? parseInt(f.size, 10) : undefined,
+          webViewLink: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
+        }));
+      }
+    } catch (err) {
+      console.warn('Listing files via serverless failed, trying direct:', err);
+    }
+
+    // 2. Direct fallback
+    try {
+      const q = `'${cleanId}' in parents and trashed=false`;
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,mimeType,size,webViewLink)&orderBy=createdTime%20desc`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        return (data.files || []).map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          size: f.size ? parseInt(f.size, 10) : undefined,
+          webViewLink: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
+        }));
+      }
+    } catch (_) {}
+
+    return [];
+  }
+
+  /**
    * Uploads a single file to a specific Drive folder.
-   * Uses serverless proxy on Netlify to completely bypass browser CORS and CSP.
+   * Automatically uses Resumable Upload for videos and files > 4.5MB.
    */
   public async uploadFile(
     folderId: string,
@@ -809,6 +967,12 @@ class GoogleDriveService {
   ): Promise<DriveUploadedFile> {
     const token = this.config.accessToken;
     if (!token) throw new Error('Google Drive access token is not set.');
+
+    // If it's a video or > 4.5MB, use Resumable Upload to avoid 6MB serverless payload limit
+    const isVideo = (file.type && file.type.startsWith('video/')) || /\.(mp4|mov|avi|mkv|webm|wmv|m4v)$/i.test(file.name);
+    if (isVideo || file.size > 4.5 * 1024 * 1024) {
+      return this.uploadResumableFile(folderId, file, onProgress);
+    }
 
     const cleanParent = this.cleanFolderId(folderId);
 

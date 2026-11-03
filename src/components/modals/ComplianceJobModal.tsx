@@ -14,7 +14,8 @@ import {
   FolderTree,
   Images,
   RefreshCw,
-  Film
+  Film,
+  Plus
 } from 'lucide-react';
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport, DocType } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
@@ -79,9 +80,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const [isBatchUploading, setIsBatchUploading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number; currentFile: string } | null>(null);
 
-  // Video File Upload
+  // Video File Upload (supports 2 to 3+ videos)
+  const [videoList, setVideoList] = useState<Array<{ id?: string; name: string; size?: number; webViewLink: string }>>([]);
   const [isVideoUploading, setIsVideoUploading] = useState(false);
-  const [videoUploadProgress, setVideoUploadProgress] = useState<number>(0);
+  const [videoProgress, setVideoProgress] = useState<{ current: number; total: number; percent: number; name: string } | null>(null);
 
   // Initialize or reset form
   useEffect(() => {
@@ -93,7 +95,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setRawId(jobToEdit.raw_id || '');
       setMreNo(jobToEdit.mre_no || '');
       setRequestReceived(jobToEdit.request_received || '');
-      setVideosUrl(jobToEdit.videos_url && !jobToEdit.videos_url.includes('#') ? jobToEdit.videos_url : '');
+      const initialVideosUrl = jobToEdit.videos_url && !jobToEdit.videos_url.includes('#') ? jobToEdit.videos_url : '';
+      setVideosUrl(initialVideosUrl);
+      if (initialVideosUrl) {
+        setVideoList([{
+          name: 'Recorded Inspection Video',
+          webViewLink: initialVideosUrl,
+        }]);
+      } else {
+        setVideoList([]);
+      }
       setAvvVerificationDate(jobToEdit.avv_verification_date || '');
       setRavDateOfEntry(jobToEdit.rav_date_of_entry || '');
       setStatus(jobToEdit.status || 'in_progress');
@@ -116,6 +127,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setMreNo('');
       setRequestReceived(new Date().toISOString().slice(0, 10));
       setVideosUrl('');
+      setVideoList([]);
       setAvvVerificationDate('');
       setRavDateOfEntry('');
       setStatus('in_progress');
@@ -227,6 +239,22 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         setDriveHierarchy(hierarchy);
         if (!videosUrl) {
           setVideosUrl(hierarchy.videosFolder.webViewLink);
+        }
+
+        // Query existing videos in MEDIA/VIDEOS
+        if (hierarchy.videosFolder?.id && !hierarchy.videosFolder.id.startsWith('demo_')) {
+          try {
+            const files = await googleDriveService.listFolderFiles(hierarchy.videosFolder.id);
+            const vFiles = files.filter(f => f.mimeType.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm)$/i.test(f.name));
+            if (vFiles.length > 0) {
+              setVideoList(vFiles.map(f => ({
+                id: f.id,
+                name: f.name,
+                size: f.size,
+                webViewLink: f.webViewLink,
+              })));
+            }
+          } catch (_) {}
         }
 
         // Auto-push and organize all vehicle attachments into their dedicated Drive folders:
@@ -355,20 +383,26 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     }
   };
 
-  // Video File Upload Handler
-  const handleVideoFileUpload = async (file: File) => {
-    if (!file) return;
+  // Multiple Videos Upload Handler (supports 2 to 3+ videos)
+  const handleMultipleVideoUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const filesArray = Array.from(files);
     setIsVideoUploading(true);
-    setVideoUploadProgress(15);
     setErrorMessage('');
     setDriveFeedback(null);
 
     try {
+      if (googleDriveService.isConfigured() && !googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
+        setDriveFeedback('Authorizing Google Drive...');
+        await googleDriveService.requestOAuthToken();
+        setIsDriveConfigured(googleDriveService.isConfigured());
+      }
+
       let targetHierarchy = driveHierarchy;
-      if (!targetHierarchy) {
+      if (!targetHierarchy || !targetHierarchy.videosFolder?.id) {
         try {
-          if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
-            targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo);
+          if (googleDriveService.isConfigured()) {
+            targetHierarchy = await googleDriveService.ensureVehicleFolderHierarchy(folderNo, false);
           } else {
             targetHierarchy = googleDriveService.getDemoHierarchy(folderNo);
           }
@@ -378,34 +412,66 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         setDriveHierarchy(targetHierarchy);
       }
 
-      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy) {
-        setVideoUploadProgress(35);
-        try {
-          const uploaded = await googleDriveService.uploadFile(
-            targetHierarchy.videosFolder.id,
-            file,
-            pct => setVideoUploadProgress(pct)
-          );
-          setVideosUrl(uploaded.webViewLink);
-          setDriveFeedback(`Inspection video "${file.name}" uploaded to Google Drive (${folderNo}/MEDIA/VIDEOS)`);
-        } catch (videoDriveErr) {
-          console.warn('Video Drive upload skipped, saving locally:', videoDriveErr);
-          setVideoUploadProgress(100);
-          setVideosUrl(targetHierarchy.videosFolder.webViewLink);
-          setDriveFeedback(`Inspection video "${file.name}" recorded in compliance job.`);
+      const totalVideos = filesArray.length;
+      const uploadedList: Array<{ id?: string; name: string; size?: number; webViewLink: string }> = [];
+      const isDriveActive = Boolean(googleDriveService.isConfigured() && targetHierarchy?.videosFolder?.id && !targetHierarchy.videosFolder.id.startsWith('demo_'));
+
+      for (let i = 0; i < totalVideos; i++) {
+        const file = filesArray[i];
+        setVideoProgress({
+          current: i + 1,
+          total: totalVideos,
+          percent: 10,
+          name: file.name,
+        });
+
+        if (isDriveActive && targetHierarchy?.videosFolder?.id) {
+          try {
+            const uploaded = await googleDriveService.uploadResumableFile(
+              targetHierarchy.videosFolder.id,
+              file,
+              pct => {
+                setVideoProgress({
+                  current: i + 1,
+                  total: totalVideos,
+                  percent: pct,
+                  name: file.name,
+                });
+              }
+            );
+
+            uploadedList.push({
+              id: uploaded.id,
+              name: file.name,
+              size: file.size,
+              webViewLink: uploaded.webViewLink,
+            });
+          } catch (uploadErr: any) {
+            console.error(`Failed uploading video ${file.name}:`, uploadErr);
+            setErrorMessage(`Failed uploading "${file.name}": ${uploadErr.message || 'Error'}`);
+          }
+        } else {
+          // Demo / local mode
+          uploadedList.push({
+            name: file.name,
+            size: file.size,
+            webViewLink: targetHierarchy?.videosFolder?.webViewLink || `https://drive.google.com/drive/folders/#${folderNo}_VIDEOS`,
+          });
         }
-      } else {
-        setVideoUploadProgress(100);
-        const demoUrl = targetHierarchy?.videosFolder.webViewLink || `https://drive.google.com/drive/folders/#${folderNo}_VIDEOS`;
-        setVideosUrl(demoUrl);
-        setDriveFeedback(`Inspection video "${file.name}" linked to Drive (${folderNo}/MEDIA/VIDEOS)`);
+      }
+
+      if (uploadedList.length > 0) {
+        setVideoList(prev => [...prev, ...uploadedList]);
+        const mainVideoLink = targetHierarchy?.videosFolder?.webViewLink || uploadedList[0].webViewLink;
+        setVideosUrl(mainVideoLink);
+        setDriveFeedback(`✓ Successfully added ${uploadedList.length} video(s) to Google Drive (${folderNo}/MEDIA/VIDEOS)`);
       }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(`Video upload error: ${err.message || 'Error'}`);
     } finally {
       setIsVideoUploading(false);
-      setVideoUploadProgress(0);
+      setVideoProgress(null);
     }
   };
 
@@ -916,67 +982,109 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5 uppercase font-display tracking-wider">
                   <Film className="w-4 h-4 text-sky-700" />
-                  Vehicle Inspection Video
+                  Vehicle Inspection Videos (MEDIA/VIDEOS)
                 </label>
-                {videosUrl && (
-                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded flex items-center gap-1">
-                    <Check className="w-3 h-3 text-emerald-600" /> Video Stored in Drive
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {videoList.length > 0 && (
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-600" /> {videoList.length} Video{videoList.length > 1 ? 's' : ''} on File
+                    </span>
+                  )}
+                  {(driveHierarchy?.videosFolder?.webViewLink || videosUrl) && (
+                    <a
+                      href={driveHierarchy?.videosFolder?.webViewLink || videosUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-700 hover:text-sky-900 bg-sky-50 px-2 py-0.5 rounded border border-sky-200 transition"
+                      title="Open MEDIA/VIDEOS folder in Google Drive"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Open Videos Folder</span>
+                    </a>
+                  )}
+                </div>
               </div>
 
-              {/* Direct Video File Upload Box */}
-              <div className="bg-white p-3 rounded-lg border border-slate-200">
-                {videosUrl ? (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="p-2 bg-sky-100 text-sky-800 rounded-md shrink-0">
-                        <Film className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-slate-800 truncate">
-                          Inspection Video on File
-                        </p>
-                        <p className="text-[11px] text-slate-500 font-mono truncate">
-                          Stored in Google Drive: {folderNo}/MEDIA/VIDEOS
-                        </p>
-                      </div>
+              {/* Direct Multi-Video File Upload Box */}
+              <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2.5">
+                {videoList.length > 0 ? (
+                  <div className="space-y-2">
+                    {/* List of uploaded inspection videos */}
+                    <div className="space-y-1.5">
+                      {videoList.map((vid, idx) => (
+                        <div
+                          key={vid.id || `${vid.name}-${idx}`}
+                          className="flex items-center justify-between gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="p-1.5 bg-sky-100 text-sky-800 rounded shrink-0">
+                              <Film className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-800 truncate" title={vid.name}>
+                                {vid.name}
+                              </p>
+                              <p className="text-[10px] text-slate-500 font-mono">
+                                {vid.size ? formatBytes(vid.size) : 'Drive Video'} • {folderNo}/MEDIA/VIDEOS
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <a
+                              href={vid.webViewLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-sky-700 bg-white hover:bg-sky-50 border border-sky-200 rounded transition"
+                              title="Watch clip in Google Drive"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>Watch</span>
+                            </a>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVideoList(prev => {
+                                  const updated = prev.filter((_, i) => i !== idx);
+                                  if (updated.length === 0) {
+                                    setVideosUrl('');
+                                  } else {
+                                    setVideosUrl(driveHierarchy?.videosFolder?.webViewLink || updated[0].webViewLink);
+                                  }
+                                  return updated;
+                                });
+                              }}
+                              className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
+                              title="Remove video"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <a
-                        href={videosUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded transition"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Watch in Drive</span>
-                      </a>
-
-                      <label className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded cursor-pointer transition">
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Replace</span>
+                    {/* Add More Videos Controls */}
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                      <p className="text-[11px] text-slate-500">
+                        Supports 2–3+ inspection clips (e.g. walkaround, underbody, engine bay)
+                      </p>
+                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-300 rounded cursor-pointer transition">
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Video(s)</span>
                         <input
                           type="file"
-                          accept="video/*,.mp4,.mov,.avi,.mkv"
+                          multiple
+                          accept="video/*,.mp4,.mov,.avi,.mkv,.webm"
                           className="hidden"
                           disabled={isVideoUploading}
                           onChange={e => {
-                            const file = e.target.files?.[0];
-                            if (file) handleVideoFileUpload(file);
+                            handleMultipleVideoUpload(e.target.files);
+                            e.target.value = '';
                           }}
                         />
                       </label>
-
-                      <button
-                        type="button"
-                        onClick={() => setVideosUrl('')}
-                        className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition"
-                        title="Remove video"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                 ) : (
@@ -986,35 +1094,38 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                     </div>
                     <div>
                       <p className="text-xs font-bold text-slate-800">
-                        {isVideoUploading ? `Uploading Video (${videoUploadProgress}%)` : 'Upload Vehicle Inspection Video (.mp4, .mov)'}
+                        {isVideoUploading
+                          ? `Uploading Video ${videoProgress?.current || 1} of ${videoProgress?.total || 1}... (${videoProgress?.percent || 0}%)`
+                          : 'Upload Vehicle Inspection Videos (2–3+ clips supported)'}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        Automatically uploads directly into your Google Drive folder: <span className="font-mono font-semibold text-sky-800">{folderNo}/MEDIA/VIDEOS</span>
+                        Select 1, 2, 3 or more inspection clips (.mp4, .mov) — uploaded directly to Google Drive: <span className="font-mono font-semibold text-sky-800">{folderNo}/MEDIA/VIDEOS</span>
                       </p>
                     </div>
                     <input
                       type="file"
-                      accept="video/*,.mp4,.mov,.avi,.mkv"
+                      multiple
+                      accept="video/*,.mp4,.mov,.avi,.mkv,.webm"
                       className="hidden"
                       disabled={isVideoUploading}
                       onChange={e => {
-                        const file = e.target.files?.[0];
-                        if (file) handleVideoFileUpload(file);
+                        handleMultipleVideoUpload(e.target.files);
+                        e.target.value = '';
                       }}
                     />
                   </label>
                 )}
 
                 {isVideoUploading && (
-                  <div className="mt-3 space-y-1">
+                  <div className="mt-2 space-y-1">
                     <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                       <div 
                         className="bg-emerald-600 h-2 transition-all duration-300"
-                        style={{ width: `${videoUploadProgress}%` }}
+                        style={{ width: `${videoProgress?.percent || 0}%` }}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-500 font-mono">
-                      Transferring video to Google Drive ({folderNo}/MEDIA/VIDEOS)... {videoUploadProgress}%
+                    <p className="text-[11px] text-slate-600 font-mono">
+                      Transferring video {videoProgress?.current || 1} of {videoProgress?.total || 1}: {videoProgress?.name || ''} ({videoProgress?.percent || 0}%) to Google Drive ({folderNo}/MEDIA/VIDEOS)...
                     </p>
                   </div>
                 )}

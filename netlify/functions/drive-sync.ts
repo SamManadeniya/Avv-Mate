@@ -4,12 +4,13 @@
  */
 
 interface RequestBody {
-  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile';
+  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile' | 'initiateResumableUpload' | 'listFiles';
   folderNo?: string;
   parentFolderId?: string;
   folderId?: string;
   name?: string;
   mimeType?: string;
+  fileSize?: number;
   base64Data?: string;
   hierarchy?: {
     docsFolder?: { id: string };
@@ -488,6 +489,128 @@ export const handler = async (event: any) => {
         body: JSON.stringify({
           success: true,
           uploaded,
+        }),
+      };
+    }
+
+    if (payload.action === 'initiateResumableUpload') {
+      const folderId = payload.folderId;
+      const fileName = payload.name;
+      const mimeType = payload.mimeType || 'video/mp4';
+      const fileSize = payload.fileSize;
+
+      if (!folderId || !fileName) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'folderId and name are required.' }),
+        };
+      }
+
+      // Check if file already exists in folder to avoid duplicate uploads
+      try {
+        const checkQ = `'${folderId}' in parents and name='${fileName.replace(/'/g, "\\'")}' and trashed=false`;
+        const checkUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(checkQ)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,webViewLink)`;
+        const checkRes = await fetch(checkUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.files && checkData.files.length > 0) {
+            const existing = checkData.files[0];
+            return {
+              statusCode: 200,
+              headers,
+              body: JSON.stringify({
+                success: true,
+                alreadyExisted: true,
+                uploaded: {
+                  id: existing.id,
+                  name: existing.name,
+                  webViewLink: existing.webViewLink || `https://drive.google.com/file/d/${existing.id}/view`,
+                },
+              }),
+            };
+          }
+        }
+      } catch (_) {}
+
+      const initHeaders: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': mimeType,
+      };
+      if (fileSize) {
+        initHeaders['X-Upload-Content-Length'] = fileSize.toString();
+      }
+
+      const initUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true';
+      const initRes = await fetch(initUrl, {
+        method: 'POST',
+        headers: initHeaders,
+        body: JSON.stringify({
+          name: fileName,
+          parents: [folderId],
+        }),
+      });
+
+      if (!initRes.ok) {
+        const errText = await initRes.text();
+        return {
+          statusCode: initRes.status,
+          headers,
+          body: JSON.stringify({ error: `Failed to initiate resumable upload: ${errText}` }),
+        };
+      }
+
+      const uploadUrl = initRes.headers.get('location') || initRes.headers.get('Location');
+      if (!uploadUrl) {
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Google Drive did not return a resumable upload location URL.' }),
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          uploadUrl,
+        }),
+      };
+    }
+
+    if (payload.action === 'listFiles') {
+      const folderId = payload.folderId;
+      if (!folderId) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'folderId is required' }),
+        };
+      }
+      const q = `'${folderId}' in parents and trashed=false`;
+      const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,mimeType,size,webViewLink)&orderBy=createdTime%20desc`;
+      const listRes = await fetch(listUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!listRes.ok) {
+        const errText = await listRes.text();
+        return {
+          statusCode: listRes.status,
+          headers,
+          body: JSON.stringify({ error: `Failed to list files: ${errText}` }),
+        };
+      }
+      const listData = await listRes.json();
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          files: listData.files || [],
         }),
       };
     }
