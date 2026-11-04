@@ -184,13 +184,13 @@ export const invoicePdfService = {
     doc.setFontSize(8.5);
     doc.setTextColor(71, 85, 105);
     doc.text('Sub Total', totLabelX, boxY + 10);
-    doc.text(`$${invoice.subtotal.toFixed(2)}`, totValX, boxY + 10, { align: 'right' });
+    doc.text(`${invoice.subtotal.toFixed(2)}`, totValX, boxY + 10, { align: 'right' });
 
     doc.text('Total Taxable Amount', totLabelX, boxY + 16);
-    doc.text(`$${invoice.subtotal.toFixed(2)}`, totValX, boxY + 16, { align: 'right' });
+    doc.text(`${invoice.subtotal.toFixed(2)}`, totValX, boxY + 16, { align: 'right' });
 
     doc.text('GST (10%)', totLabelX, boxY + 22);
-    doc.text(`$${invoice.tax_amount.toFixed(2)}`, totValX, boxY + 22, { align: 'right' });
+    doc.text(`${invoice.tax_amount.toFixed(2)}`, totValX, boxY + 22, { align: 'right' });
 
     doc.setDrawColor(203, 213, 225);
     doc.line(totLabelX, boxY + 26, totValX, boxY + 26);

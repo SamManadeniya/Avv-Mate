@@ -84,22 +84,22 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({ invoice }) => 
 
         {/* Right: Metadata */}
         <div className="flex justify-end">
-          <table className="text-xs border-collapse">
+          <table className="text-xs border-collapse w-64 sm:w-72">
             <tbody>
               <tr>
-                <td className="py-1 pr-6 font-semibold text-slate-500 text-right">Invoice#</td>
+                <td className="py-1 text-left font-semibold text-slate-500">Invoice#</td>
                 <td className="py-1 font-mono font-bold text-slate-900 text-right">{invoice.invoice_no}</td>
               </tr>
               <tr>
-                <td className="py-1 pr-6 font-semibold text-slate-500 text-right">Invoice Date</td>
+                <td className="py-1 text-left font-semibold text-slate-500">Invoice Date</td>
                 <td className="py-1 font-medium text-slate-800 text-right">{formatDateDisplay(invoice.invoice_date)}</td>
               </tr>
               <tr>
-                <td className="py-1 pr-6 font-semibold text-slate-500 text-right">Terms</td>
+                <td className="py-1 text-left font-semibold text-slate-500">Terms</td>
                 <td className="py-1 font-medium text-slate-800 text-right">{invoice.terms || 'Due on Receipt'}</td>
               </tr>
               <tr>
-                <td className="py-1 pr-6 font-semibold text-slate-500 text-right">Due Date</td>
+                <td className="py-1 text-left font-semibold text-slate-500">Due Date</td>
                 <td className="py-1 font-medium text-slate-800 text-right">{formatDateDisplay(invoice.due_date)}</td>
               </tr>
             </tbody>
@@ -166,15 +166,15 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({ invoice }) => 
           <div className="space-y-1.5 flex flex-col justify-center">
             <div className="flex justify-between text-slate-600">
               <span>Sub Total</span>
-              <span className="font-mono font-semibold">${invoice.subtotal.toFixed(2)}</span>
+              <span className="font-mono font-semibold">{invoice.subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-slate-600">
               <span>Total Taxable Amount</span>
-              <span className="font-mono font-semibold">${invoice.subtotal.toFixed(2)}</span>
+              <span className="font-mono font-semibold">{invoice.subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-slate-600">
               <span>GST (10%)</span>
-              <span className="font-mono font-semibold">${invoice.tax_amount.toFixed(2)}</span>
+              <span className="font-mono font-semibold">{invoice.tax_amount.toFixed(2)}</span>
             </div>
             <div className="border-t border-slate-300 pt-1.5 flex justify-between font-bold text-slate-900 text-sm">
               <span>Total</span>

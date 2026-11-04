@@ -979,6 +979,7 @@ export const App: React.FC = () => {
         isOpen={isInvoicePreviewOpen}
         onClose={() => setIsInvoicePreviewOpen(false)}
         invoice={previewInvoice}
+        workshops={workshops}
         onStatusChange={handleInvoiceStatusChange}
       />
 
