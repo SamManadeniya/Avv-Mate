@@ -232,7 +232,29 @@ class GoogleDriveService {
       }
     } catch (_) {}
 
-    // 3. If we still have an accessToken, return it as last resort but alert that it may be expired
+    // 3. Check if server backend has central auth (e.g. from Netlify environment variable GOOGLE_DRIVE_REFRESH_TOKEN)
+    try {
+      const serverRes = await fetch('/api/drive-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getAppSession' }),
+      });
+      if (serverRes.ok) {
+        const serverData = await serverRes.json();
+        if (serverData.hasServerAuth && serverData.accessToken) {
+          const expiresIn = Number(serverData.expiresIn) || 3599;
+          this.saveConfig({
+            accessToken: serverData.accessToken,
+            tokenExpiresAt: Date.now() + expiresIn * 1000,
+            enabled: true,
+          });
+          window.dispatchEvent(new CustomEvent('avv_mate_auth_restored'));
+          return serverData.accessToken;
+        }
+      }
+    } catch (_) {}
+
+    // 4. If we still have an accessToken, return it as last resort but alert that it may be expired
     if (this.config.accessToken) {
       window.dispatchEvent(new CustomEvent('avv_mate_auth_expired'));
       return this.config.accessToken;

@@ -4,7 +4,7 @@
  */
 
 interface RequestBody {
-  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile' | 'initiateResumableUpload' | 'listFiles' | 'getOrCreateMasterSpreadsheet' | 'syncMasterSpreadsheet' | 'readMasterSpreadsheet' | 'refreshAccessToken' | 'exchangeAuthCode';
+  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile' | 'initiateResumableUpload' | 'listFiles' | 'getOrCreateMasterSpreadsheet' | 'syncMasterSpreadsheet' | 'readMasterSpreadsheet' | 'refreshAccessToken' | 'exchangeAuthCode' | 'getAppSession';
   folderNo?: string;
   parentFolderId?: string;
   folderId?: string;
@@ -439,6 +439,55 @@ export const handler = async (event: any) => {
           refreshToken: tokenData.refresh_token,
           expiresIn: tokenData.expires_in,
         }),
+      };
+    }
+
+    // 0.2. Check if server environment has central Google Drive credentials configured (for clients/outsiders)
+    if (payload.action === 'getAppSession') {
+      const refreshToken = payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+      const clientId = payload.clientId || process.env.GOOGLE_DRIVE_CLIENT_ID || '43512054136-hm8pg6tue7uajtb11i4nqmpndng6ik05.apps.googleusercontent.com';
+      const clientSecret = payload.clientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || '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';
+
+      if (!refreshToken) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ hasServerAuth: false }),
+        };
+      }
+
+      try {
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken,
+            grant_type: 'refresh_token',
+          }).toString(),
+        });
+
+        if (tokenRes.ok) {
+          const tokenData = await tokenRes.json();
+          if (tokenData.access_token) {
+            return {
+              statusCode: 200,
+              headers,
+              body: JSON.stringify({
+                hasServerAuth: true,
+                accessToken: tokenData.access_token,
+                expiresIn: tokenData.expires_in,
+              }),
+            };
+          }
+        }
+      } catch (_) {}
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ hasServerAuth: false }),
       };
     }
 
