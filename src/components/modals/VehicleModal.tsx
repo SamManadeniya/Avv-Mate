@@ -23,6 +23,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   modelReports,
 }) => {
   const [vin, setVin] = useState('');
+  const [uniqueId, setUniqueId] = useState('');
   const [buildDate, setBuildDate] = useState('');
   const [viaNo, setViaNo] = useState('');
   const [rawId, setRawId] = useState('');
@@ -39,6 +40,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
 
     if (vehicleToEdit) {
       setVin(vehicleToEdit.vin);
+      setUniqueId(vehicleToEdit.unique_id || '');
       setBuildDate(vehicleToEdit.build_date);
       setViaNo(vehicleToEdit.via_no || '');
       setRawId(vehicleToEdit.raw_id || '');
@@ -49,6 +51,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       setVinValidation({ valid: true });
     } else {
       setVin('');
+      setUniqueId('');
       setBuildDate('');
       setViaNo('');
       setRawId('');
@@ -120,6 +123,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       const cleanVin = vin.toUpperCase().trim();
       const cleanBuildDate = buildDate.trim();
       const cleanViaNo = viaNo.trim() || null;
+      const cleanUniqueId = uniqueId.trim() || null;
       const cleanRawId = rawId.trim() || null;
       const cleanMreNo = mreNo.trim() || null;
       const workshop = workshops.find(w => w.raw_id === cleanRawId);
@@ -128,6 +132,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       try {
         if (vehicleToEdit) {
           savedVehicle = await vehicleService.update(vehicleToEdit.vin, {
+            unique_id: cleanUniqueId,
             build_date: cleanBuildDate,
             via_no: cleanViaNo,
             raw_id: cleanRawId,
@@ -136,6 +141,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
         } else {
           savedVehicle = await vehicleService.create({
             vin: cleanVin,
+            unique_id: cleanUniqueId,
             build_date: cleanBuildDate,
             via_no: cleanViaNo,
             raw_id: cleanRawId,
@@ -146,6 +152,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
         console.warn('Supabase vehicle save bypassed or failed, creating/updating locally:', sbErr);
         savedVehicle = {
           vin: cleanVin,
+          unique_id: cleanUniqueId,
           build_date: cleanBuildDate,
           via_no: cleanViaNo,
           raw_id: cleanRawId,
@@ -250,18 +257,33 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             </div>
           </div>
 
-          {/* VIA# */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              VIA # (Vehicle Import Approval / CRE reference)
-            </label>
-            <input
-              type="text"
-              value={viaNo}
-              onChange={e => setViaNo(e.target.value)}
-              placeholder="CRE-145420"
-              className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono uppercase focus:ring-2 focus:ring-sky-500"
-            />
+          {/* VIA# and Unique ID */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            <div className="min-w-0">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                VIA # (Vehicle Import Approval / CRE reference)
+              </label>
+              <input
+                type="text"
+                value={viaNo}
+                onChange={e => setViaNo(e.target.value)}
+                placeholder="CRE-145420"
+                className="w-full min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono uppercase focus:ring-2 focus:ring-sky-500"
+              />
+            </div>
+
+            <div className="min-w-0">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Vehicle Unique ID
+              </label>
+              <input
+                type="text"
+                value={uniqueId}
+                onChange={e => setUniqueId(e.target.value)}
+                placeholder="UID-1040"
+                className="w-full min-w-0 px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
+              />
+            </div>
           </div>
 
           {/* RAW ID & Autocomplete Workshop Name */}

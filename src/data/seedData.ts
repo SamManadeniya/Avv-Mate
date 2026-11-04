@@ -465,6 +465,7 @@ export const DEFAULT_MODEL_REPORTS: ModelReport[] = [
 export const DEFAULT_VEHICLES: Vehicle[] = [
   {
     vin: '6ZZLLA400K0042734',
+    unique_id: 'UID-1040',
     build_date: '07/2020',
     via_no: 'CRE-145420',
     raw_id: 'RAW-000153',
@@ -477,6 +478,7 @@ export const DEFAULT_VEHICLES: Vehicle[] = [
   },
   {
     vin: '7ZZLLA400K0012345',
+    unique_id: 'UID-1041',
     build_date: '08/2020',
     via_no: 'CRE-145421',
     raw_id: 'RAW-000228',

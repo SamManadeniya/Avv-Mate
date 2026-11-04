@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   FileText, 
   Plus, 
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import type { Invoice } from '../../types';
 import { exportService } from '../../services/exportService';
+import { Pagination } from '../common/Pagination';
 
 interface InvoicesViewProps {
   invoices: Invoice[];
@@ -30,6 +31,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Reset to page 1 on search or filter change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
@@ -43,6 +51,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       return matchSearch && matchStatus;
     });
   }, [invoices, searchTerm, statusFilter]);
+
+  const paginatedInvoices = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredInvoices.slice(start, start + pageSize);
+  }, [filteredInvoices, currentPage, pageSize]);
 
   // Aggregate statistics
   const totalInvoiced = invoices.reduce((acc, inv) => acc + (inv.total_amount || 0), 0);
@@ -211,7 +224,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredInvoices.map(invoice => {
+                paginatedInvoices.map(invoice => {
                   const firstItem = invoice.items[0]?.item_details || '';
                   const itemSummary = firstItem.split('\n')[0] || 'Verification Services';
 
@@ -320,6 +333,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination controls */}
+        <Pagination
+          currentPage={currentPage}
+          totalItems={filteredInvoices.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[10, 25, 50]}
+          itemName="invoices"
+        />
       </div>
     </div>
   );

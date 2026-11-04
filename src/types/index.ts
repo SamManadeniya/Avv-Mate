@@ -50,6 +50,7 @@ export interface ModelReport {
 
 export interface Vehicle {
   vin: string; // PK (17 chars)
+  unique_id?: string | null; // Vehicle Unique ID
   build_date: string; // e.g. 07/2020 or 2020-07
   via_no?: string | null; // e.g. CRE-145420
   raw_id?: string | null;

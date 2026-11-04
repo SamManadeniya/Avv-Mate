@@ -1164,11 +1164,11 @@ export const handler = async (event: any) => {
             ]
           },
           {
-            range: 'Vehicles!A1:J1',
+            range: 'Vehicles!A1:K1',
             values: [
               [
                 'VIN', 'Build Date', 'VIA #', 'RAW ID', 'RAW Workshop Name',
-                'MRE #', 'Make', 'Model', 'Created At', 'Updated At'
+                'MRE #', 'Make', 'Model', 'Unique ID', 'Created At', 'Updated At'
               ]
             ]
           },
@@ -1401,7 +1401,7 @@ export const handler = async (event: any) => {
         const vehicleRows: any[][] = [
           [
             'VIN', 'Build Date', 'VIA #', 'RAW ID', 'RAW Workshop Name',
-            'MRE #', 'Make', 'Model', 'Created At', 'Updated At'
+            'MRE #', 'Make', 'Model', 'Unique ID', 'Created At', 'Updated At'
           ]
         ];
 
@@ -1417,6 +1417,7 @@ export const handler = async (event: any) => {
             v.mre_no || '',
             v.make || '',
             v.model || '',
+            v.unique_id || '',
             v.created_at || '',
             v.updated_at || ''
           ]);
@@ -1562,7 +1563,7 @@ export const handler = async (event: any) => {
             photosCell,
             formatDocCell('RAW_DECLA'),
             m.author || '',
-            m.unique_id || '',
+            v.unique_id || m.unique_id || '',
             w.name || j.raw_workshop_name || j.raw_id || '',
             formatDocCell('RECALL'),
             j.avv_verification_date || '',
@@ -1884,6 +1885,11 @@ export const handler = async (event: any) => {
 
       // Range 1: Vehicles
       const vehiclesRaw = ranges[1]?.values || [];
+      const vHeader = (vehiclesRaw[0] || []).map((h: any) => String(h).trim().toLowerCase());
+      const vUidIdx = vHeader.findIndex((h: string) => h.includes('unique'));
+      const vCreatedIdx = vHeader.findIndex((h: string) => h.includes('created'));
+      const vUpdatedIdx = vHeader.findIndex((h: string) => h.includes('updated'));
+
       const vehicles = vehiclesRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[]) => {
         const vin = String(r[0]).trim();
         const rawId = r[3] ? String(r[3]).trim().toUpperCase() : null;
@@ -1899,8 +1905,13 @@ export const handler = async (event: any) => {
         const makeVal = r[6] ? String(r[6]).trim() : '';
         const modelVal = r[7] ? String(r[7]).trim() : '';
 
+        const uidVal = vUidIdx !== -1 ? r[vUidIdx] : (r.length >= 11 ? r[8] : null);
+        const createdAtVal = vCreatedIdx !== -1 ? r[vCreatedIdx] : (vUidIdx !== -1 ? r[9] : r[8]);
+        const updatedAtVal = vUpdatedIdx !== -1 ? r[vUpdatedIdx] : (vUidIdx !== -1 ? r[10] : r[9]);
+
         return {
           vin,
+          unique_id: uidVal ? String(uidVal).trim() : null,
           build_date: r[1] || '',
           via_no: r[2] || null,
           raw_id: rawId,
@@ -1908,8 +1919,8 @@ export const handler = async (event: any) => {
           mre_no: mreNo,
           make: makeVal || mr?.make || null,
           model: modelVal || mr?.model || null,
-          created_at: r[8] || new Date().toISOString(),
-          updated_at: r[9] || null,
+          created_at: createdAtVal || new Date().toISOString(),
+          updated_at: updatedAtVal || null,
         };
       });
 

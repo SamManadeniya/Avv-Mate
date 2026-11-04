@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
   Plus, 
@@ -18,6 +18,7 @@ import type { ComplianceJob } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
 import { formatDate } from '../../lib/utils';
 import { exportService } from '../../services/exportService';
+import { Pagination } from '../common/Pagination';
 
 interface ComplianceJobsViewProps {
   jobs: ComplianceJob[];
@@ -39,6 +40,13 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [docFilter, setDocFilter] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Reset to page 1 when search or filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, docFilter]);
 
   const filteredJobs = useMemo(() => {
     return jobs.filter(job => {
@@ -65,6 +73,11 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
       return matchQuery && matchStatus && matchDoc;
     });
   }, [jobs, searchTerm, statusFilter, docFilter]);
+
+  const paginatedJobs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredJobs.slice(start, start + pageSize);
+  }, [filteredJobs, currentPage, pageSize]);
 
   const handleExportCsv = () => {
     const exportData = filteredJobs.map(j => ({
@@ -220,7 +233,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                 </td>
               </tr>
             ) : (
-              filteredJobs.map(job => {
+              paginatedJobs.map(job => {
                 return (
                   <tr 
                     key={job.id} 
@@ -428,6 +441,17 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination controls */}
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filteredJobs.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[10, 25, 50]}
+        itemName="compliance jobs"
+      />
     </div>
   );
 };

@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, Plus, Download, FileText, Edit3, Trash2, Car } from 'lucide-react';
 import type { Vehicle } from '../../types';
 import { exportService } from '../../services/exportService';
+import { Pagination } from '../common/Pagination';
 
 interface VehiclesViewProps {
   vehicles: Vehicle[];
@@ -17,6 +18,13 @@ export const VehiclesView: React.FC<VehiclesViewProps> = ({
   onDeleteVehicle,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Reset to page 1 whenever search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   const filteredVehicles = useMemo(() => {
     return vehicles.filter(v => {
@@ -24,6 +32,7 @@ export const VehiclesView: React.FC<VehiclesViewProps> = ({
       if (!q) return true;
       return (
         v.vin.toLowerCase().includes(q) ||
+        (v.unique_id && v.unique_id.toLowerCase().includes(q)) ||
         (v.via_no && v.via_no.toLowerCase().includes(q)) ||
         (v.raw_id && v.raw_id.toLowerCase().includes(q)) ||
         (v.raw_workshop_name && v.raw_workshop_name.toLowerCase().includes(q)) ||
@@ -34,9 +43,15 @@ export const VehiclesView: React.FC<VehiclesViewProps> = ({
     });
   }, [vehicles, searchTerm]);
 
+  const paginatedVehicles = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredVehicles.slice(start, start + pageSize);
+  }, [filteredVehicles, currentPage, pageSize]);
+
   const handleExportCsv = () => {
     const data = filteredVehicles.map(v => ({
       'VIN': v.vin,
+      'Unique ID': v.unique_id || '',
       'Build Date': v.build_date,
       'VIA #': v.via_no || '',
       'RAW ID': v.raw_id || '',
@@ -123,6 +138,7 @@ export const VehiclesView: React.FC<VehiclesViewProps> = ({
           <thead>
             <tr className="bg-slate-100/80 border-b border-slate-200 font-display uppercase tracking-wider text-slate-600 text-[11px]">
               <th className="py-2.5 px-4 font-bold bg-sky-50/50">VIN</th>
+              <th className="py-2.5 px-4 font-bold bg-sky-100/60 text-sky-950">Unique ID</th>
               <th className="py-2.5 px-4 font-bold">Build Date</th>
               <th className="py-2.5 px-4 font-bold bg-red-50/50">VIA #</th>
               <th className="py-2.5 px-4 font-bold bg-red-50/30">RAW ID</th>
@@ -136,14 +152,14 @@ export const VehiclesView: React.FC<VehiclesViewProps> = ({
           <tbody className="divide-y divide-slate-200">
             {filteredVehicles.length === 0 ? (
               <tr>
-                <td colSpan={9} className="py-12 text-center text-slate-400">
+                <td colSpan={10} className="py-12 text-center text-slate-400">
                   <Car className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                   <p className="font-semibold text-sm">No vehicles registered</p>
                   <p className="text-xs mt-1">Click "Register Vehicle" to add the first vehicle.</p>
                 </td>
               </tr>
             ) : (
-              filteredVehicles.map(vehicle => (
+              paginatedVehicles.map(vehicle => (
                 <tr 
                   key={vehicle.vin} 
                   className="hover:bg-sky-50/40 transition group cursor-pointer"
@@ -151,6 +167,15 @@ export const VehiclesView: React.FC<VehiclesViewProps> = ({
                 >
                   <td className="py-3 px-4 font-mono font-bold text-slate-900 group-hover:text-sky-700 whitespace-nowrap bg-sky-50/30">
                     {vehicle.vin}
+                  </td>
+                  <td className="py-3 px-4 whitespace-nowrap bg-sky-50/20">
+                    {vehicle.unique_id ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-sky-100 text-sky-900 border border-sky-300 shadow-2xs">
+                        {vehicle.unique_id}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 font-mono">—</span>
+                    )}
                   </td>
                   <td className="py-3 px-4 font-mono text-slate-700 whitespace-nowrap">
                     {vehicle.build_date}
@@ -200,6 +225,17 @@ export const VehiclesView: React.FC<VehiclesViewProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination controls */}
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filteredVehicles.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[10, 25, 50]}
+        itemName="vehicles"
+      />
     </div>
   );
 };

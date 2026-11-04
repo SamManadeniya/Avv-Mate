@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, Plus, Download, Edit3, Trash2, FileText } from 'lucide-react';
 import type { ModelReport } from '../../types';
 import { exportService } from '../../services/exportService';
+import { Pagination } from '../common/Pagination';
 
 interface ModelReportsViewProps {
   modelReports: ModelReport[];
@@ -17,6 +18,13 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
   onDeleteReport,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Reset to page 1 on search
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   const filteredReports = useMemo(() => {
     return modelReports.filter(r => {
@@ -28,16 +36,19 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
         r.make.toLowerCase().includes(q) ||
         r.model.toLowerCase().includes(q) ||
         (r.vcc && r.vcc.toLowerCase().includes(q)) ||
-        (r.author && r.author.toLowerCase().includes(q)) ||
-        (r.unique_id && r.unique_id.toLowerCase().includes(q))
+        (r.author && r.author.toLowerCase().includes(q))
       );
     });
   }, [modelReports, searchTerm]);
 
+  const paginatedReports = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredReports.slice(start, start + pageSize);
+  }, [filteredReports, currentPage, pageSize]);
+
   const handleExportCsv = () => {
     const data = filteredReports.map(r => ({
       'MRE No': r.mre_no,
-      'Unique ID': r.unique_id || '',
       'Build Date Range (MRE)': `${r.build_from || ''} - ${r.build_to || ''}`,
       'SEV No': r.sev_no || '',
       'Build Date Range (SEV)': `${r.sev_build_from || ''} - ${r.sev_build_to || ''}`,
@@ -121,13 +132,12 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
         <span className="font-semibold text-sky-900 bg-sky-100 px-1.5 py-0.5 rounded text-[10px]">Actions pinned</span>
       </div>
 
-      {/* Table matching Image 1 (Model Reports) */}
+      {/* Table matching Model Reports */}
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead>
             <tr className="bg-slate-100/80 border-b border-slate-200 font-display uppercase tracking-wider text-slate-600 text-[11px]">
               <th className="py-2.5 px-3 sm:px-4 font-bold bg-sky-50/70">MRE No</th>
-              <th className="py-2.5 px-3 sm:px-4 font-bold bg-sky-100/50 text-sky-950">Unique ID</th>
               <th className="py-2.5 px-3 sm:px-4 font-bold">Make</th>
               <th className="py-2.5 px-3 sm:px-4 font-bold">Model</th>
               <th className="py-2.5 px-3 sm:px-4 font-bold bg-amber-50/50">SEV No</th>
@@ -145,37 +155,21 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
           <tbody className="divide-y divide-slate-200">
             {filteredReports.length === 0 ? (
               <tr>
-                <td colSpan={13} className="py-12 text-center text-slate-400">
+                <td colSpan={12} className="py-12 text-center text-slate-400">
                   <FileText className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                   <p className="font-semibold text-sm">No model reports found</p>
                   <p className="text-xs mt-1">Click "Add Model Report" to add an approved MRE.</p>
                 </td>
               </tr>
             ) : (
-              filteredReports.map(report => (
+              paginatedReports.map(report => (
                 <tr 
                   key={report.mre_no} 
                   className="hover:bg-sky-50/40 transition group cursor-pointer"
                   onClick={() => onEditReport(report)}
                 >
                   <td className="py-2.5 px-3 sm:px-4 font-mono font-bold text-slate-900 group-hover:text-sky-700 whitespace-nowrap bg-sky-50/30">
-                    <div className="flex flex-col">
-                      <span>{report.mre_no}</span>
-                      {report.unique_id && (
-                        <span className="sm:hidden text-[10px] font-mono font-bold text-sky-800 bg-sky-100 px-1.5 py-0.2 rounded w-fit mt-0.5">
-                          UID: {report.unique_id}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2.5 px-3 sm:px-4 whitespace-nowrap bg-sky-50/20">
-                    {report.unique_id ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-sky-100/80 text-sky-900 border border-sky-300/80 shadow-2xs">
-                        {report.unique_id}
-                      </span>
-                    ) : (
-                      <span className="text-slate-300 font-mono">—</span>
-                    )}
+                    {report.mre_no}
                   </td>
                   <td className="py-2.5 px-3 sm:px-4 font-semibold text-slate-900 whitespace-nowrap">
                     {report.make}
@@ -234,6 +228,17 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination controls */}
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filteredReports.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[10, 25, 50]}
+        itemName="model reports"
+      />
     </div>
   );
 };

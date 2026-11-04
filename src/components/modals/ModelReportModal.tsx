@@ -29,7 +29,6 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
   const [powerKw, setPowerKw] = useState<number | ''>('');
   const [seats, setSeats] = useState<number | ''>('');
   const [author, setAuthor] = useState('');
-  const [uniqueId, setUniqueId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -50,7 +49,6 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
       setPowerKw(reportToEdit.power_kw ?? '');
       setSeats(reportToEdit.seats ?? '');
       setAuthor(reportToEdit.author || '');
-      setUniqueId(reportToEdit.unique_id || '');
     } else {
       setMreNo('');
       setMake('');
@@ -65,7 +63,6 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
       setPowerKw('');
       setSeats('');
       setAuthor('');
-      setUniqueId('');
     }
     setErrorMessage('');
   }, [isOpen, reportToEdit]);
@@ -99,7 +96,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
       const cleanPower = powerKw === '' ? null : Number(powerKw);
       const cleanSeats = seats === '' ? null : Number(seats);
       const cleanAuthor = author.trim() || null;
-      const cleanUniqueId = uniqueId.trim() || null;
+      const preservedUniqueId = reportToEdit?.unique_id || null;
 
       try {
         if (reportToEdit) {
@@ -116,7 +113,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
             power_kw: cleanPower,
             seats: cleanSeats,
             author: cleanAuthor,
-            unique_id: cleanUniqueId,
+            unique_id: preservedUniqueId,
           } as any);
         } else {
           savedReport = await modelReportService.create({
@@ -133,14 +130,14 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
             power_kw: cleanPower,
             seats: cleanSeats,
             author: cleanAuthor,
-            unique_id: cleanUniqueId,
+            unique_id: null,
           } as any);
         }
       } catch (sbErr) {
         console.warn('Supabase model report save bypassed or failed, creating/updating locally:', sbErr);
         savedReport = {
           mre_no: cleanMreNo,
-          unique_id: cleanUniqueId,
+          unique_id: preservedUniqueId,
           make: cleanMake,
           model: cleanModel,
           sev_no: cleanSevNo,
@@ -156,10 +153,6 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
           created_at: reportToEdit?.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-      }
-
-      if (savedReport) {
-        savedReport.unique_id = cleanUniqueId;
       }
 
       await onSaved(savedReport);
@@ -254,7 +247,7 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 SEV No (SEV #)
@@ -278,19 +271,6 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
                 onChange={e => setAuthor(e.target.value)}
                 placeholder="e.g. CPT, J-Spec..."
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-semibold focus:ring-2 focus:ring-sky-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Model Report Unique ID
-              </label>
-              <input
-                type="text"
-                value={uniqueId}
-                onChange={e => setUniqueId(e.target.value)}
-                placeholder="e.g. UID-0008, CPT-001..."
-                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md font-mono text-sm focus:ring-2 focus:ring-sky-500"
               />
             </div>
           </div>

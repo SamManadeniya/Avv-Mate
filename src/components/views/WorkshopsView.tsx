@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, Plus, Download, Edit3, Trash2, Wrench, Mail, Phone, FileText } from 'lucide-react';
 import type { RawWorkshop } from '../../types';
 import { exportService } from '../../services/exportService';
+import { Pagination } from '../common/Pagination';
 
 interface WorkshopsViewProps {
   workshops: RawWorkshop[];
@@ -17,6 +18,13 @@ export const WorkshopsView: React.FC<WorkshopsViewProps> = ({
   onDeleteWorkshop,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Reset to page 1 on search
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   const filteredWorkshops = useMemo(() => {
     return workshops.filter(w => {
@@ -30,6 +38,11 @@ export const WorkshopsView: React.FC<WorkshopsViewProps> = ({
       );
     });
   }, [workshops, searchTerm]);
+
+  const paginatedWorkshops = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredWorkshops.slice(start, start + pageSize);
+  }, [filteredWorkshops, currentPage, pageSize]);
 
   const handleExportCsv = () => {
     const data = filteredWorkshops.map(w => ({
@@ -134,7 +147,7 @@ export const WorkshopsView: React.FC<WorkshopsViewProps> = ({
                 </td>
               </tr>
             ) : (
-              filteredWorkshops.map(workshop => (
+              paginatedWorkshops.map(workshop => (
                 <tr 
                   key={workshop.raw_id} 
                   className="hover:bg-sky-50/40 transition group cursor-pointer"
@@ -196,6 +209,17 @@ export const WorkshopsView: React.FC<WorkshopsViewProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination controls */}
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filteredWorkshops.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={setPageSize}
+        pageSizeOptions={[10, 25, 50]}
+        itemName="workshops"
+      />
     </div>
   );
 };
