@@ -77,3 +77,4 @@ export const DEFAULT_SEED_INVOICES: Invoice[] = [
     updated_at: '2026-11-04T07:00:00.000Z',
   },
 ];
+

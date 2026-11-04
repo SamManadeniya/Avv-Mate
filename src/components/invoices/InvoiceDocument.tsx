@@ -203,3 +203,4 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({ invoice }) => 
     </div>
   );
 };
+
