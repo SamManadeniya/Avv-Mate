@@ -89,12 +89,12 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-xs">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
-        {/* Top Header Row */}
-        <div className="flex items-center justify-between h-14 sm:h-16 gap-2 sm:gap-4">
+      {/* Tier 1: Brand & Global System Action Controls */}
+      <div className="w-full max-w-[1600px] mx-auto px-3 sm:px-5 lg:px-6">
+        <div className="flex items-center justify-between h-13 sm:h-14 gap-2 sm:gap-4">
           {/* Brand */}
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-sky-800 flex items-center justify-center text-white font-display font-bold text-base sm:text-lg shadow-xs shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-sky-800 flex items-center justify-center text-white font-display font-bold text-base shadow-xs shrink-0">
               AV
             </div>
             <div>
@@ -106,46 +106,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                   RVSA
                 </span>
               </div>
-              <p className="hidden 2xl:block text-[11px] text-slate-500 font-medium whitespace-nowrap">
+              <p className="hidden md:block text-[11px] text-slate-500 font-medium whitespace-nowrap -mt-0.5">
                 Authorised Vehicle Verifier & Compliance Workbench
               </p>
             </div>
           </div>
 
-          {/* Desktop Navigation Links (visible on lg screens 1024px+) */}
-          <nav className="hidden lg:flex items-center gap-1 shrink-0">
-            {navItems.map((item) => {
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => onTabChange(item.id)}
-                  className={`flex items-center gap-1.5 px-2.5 xl:px-3.5 py-1.5 xl:py-2 rounded-md text-xs xl:text-sm font-semibold transition shrink-0 whitespace-nowrap ${
-                    isActive
-                      ? 'bg-sky-50 text-sky-800 shadow-xs border border-sky-200/80'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className={isActive ? 'text-sky-700' : 'text-slate-400'}>
-                    {item.icon}
-                  </span>
-                  <span className="hidden xl:inline">{item.label}</span>
-                  <span className="xl:hidden">{item.shortLabel}</span>
-                  <span
-                    className={`ml-0.5 text-[10px] xl:text-xs px-1.5 py-0.2 rounded-full font-mono ${
-                      isActive
-                        ? 'bg-sky-200/80 text-sky-900 font-bold'
-                        : 'bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {item.count}
-                  </span>
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Actions & Connection Status */}
+          {/* Global Actions (Right aligned) - Always 100% visible, never cut off */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Master Google Spreadsheet Button with live status */}
             {isDriveConnected && (
@@ -158,7 +125,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     window.open(masterSheetUrl, '_blank');
                   }
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 transition shadow-2xs cursor-pointer shrink-0"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 transition shadow-2xs cursor-pointer shrink-0"
                 title={isSheetsPrimary ? "Google Sheets DB Primary — Open Master Sheet" : "Open Master Google Spreadsheet"}
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
@@ -173,11 +140,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={onSyncAllToSheets}
                 disabled={isSyncingSheets}
-                className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] sm:text-xs font-medium bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 transition disabled:opacity-50 cursor-pointer shrink-0"
-                title="Sync all tables (Compliance Jobs, Vehicles, RAW Workshops, Model Reports, SVC, Invoices) to Master Google Sheet"
+                className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 transition disabled:opacity-50 cursor-pointer shrink-0"
+                title="Sync all tables to Master Google Sheet"
               >
-                <RefreshCw className={`w-3 h-3 text-sky-600 shrink-0 ${isSyncingSheets ? 'animate-spin' : ''}`} />
-                <span className="hidden xl:inline">{isSyncingSheets ? 'Syncing...' : 'Sync Sheet'}</span>
+                <RefreshCw className={`w-3.5 h-3.5 text-sky-600 shrink-0 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">{isSyncingSheets ? 'Syncing...' : 'Sync Sheet'}</span>
               </button>
             )}
 
@@ -199,57 +166,65 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={onRestoreSeedData}
                 disabled={isSyncingSheets}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer shrink-0"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer shrink-0"
                 title="Restore default master records"
               >
-                <Database className="w-3 h-3 shrink-0" />
+                <Database className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden sm:inline">Restore Data</span>
               </button>
             )}
 
+            {/* Primary Action Button: + New Job */}
             <button
               onClick={onNewJobClick}
-              className="flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-sky-700 hover:bg-sky-800 text-white text-xs sm:text-sm font-semibold rounded-md shadow-xs transition shrink-0"
+              className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-sky-700 hover:bg-sky-800 text-white text-xs sm:text-sm font-semibold rounded-lg shadow-xs transition shrink-0 cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+              <Plus className="w-4 h-4 shrink-0" />
               <span>New Job</span>
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Mobile & Tablet Navigation Strip (visible below lg screen < 1024px) */}
-        <div className="lg:hidden flex items-center gap-1.5 overflow-x-auto py-2 border-t border-slate-100 -mx-3 sm:-mx-4 px-3 sm:px-4 scrollbar-none">
-          {navItems.map((item) => {
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => onTabChange(item.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap transition shrink-0 ${
-                  isActive
-                    ? 'bg-sky-100 text-sky-900 border border-sky-300 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900 bg-slate-50 border border-slate-200'
-                }`}
-              >
-                <span className={isActive ? 'text-sky-700' : 'text-slate-400'}>
-                  {item.icon}
-                </span>
-                <span>{item.label}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                    isActive
-                      ? 'bg-sky-200 text-sky-900 font-bold'
-                      : 'bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {item.count}
-                </span>
-              </button>
-            );
-          })}
+      {/* Tier 2: Dedicated Navigation Tab Bar - Robust, no sliding/overflow across screens */}
+      <div className="border-t border-slate-200/80 bg-slate-50/70">
+        <div className="w-full max-w-[1600px] mx-auto px-2 sm:px-5 lg:px-6">
+          <nav className="py-1.5">
+            {/* Grid on mobile (< 640px) so all 5 fit without sliding; flex on sm+ screens */}
+            <div className="grid grid-cols-5 sm:flex sm:items-center gap-1 sm:gap-2">
+              {navItems.map((item) => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onTabChange(item.id)}
+                    className={`flex items-center justify-center sm:justify-start gap-1 sm:gap-2 px-1.5 sm:px-3.5 py-1.5 sm:py-1.5 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer ${
+                      isActive
+                        ? 'bg-white text-sky-800 border border-slate-300 shadow-2xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <span className={isActive ? 'text-sky-700' : 'text-slate-400'}>
+                      {item.icon}
+                    </span>
+                    <span className="hidden sm:inline">{item.label}</span>
+                    <span className="sm:hidden text-[10px] truncate">{item.shortLabel}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                        isActive
+                          ? 'bg-sky-100 text-sky-900 font-bold border border-sky-200'
+                          : 'bg-slate-200/80 text-slate-600'
+                      }`}
+                    >
+                      {item.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
         </div>
       </div>
     </header>
   );
 };
-
