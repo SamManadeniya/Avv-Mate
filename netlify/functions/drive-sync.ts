@@ -350,28 +350,14 @@ const ensureMasterSheetTabs = async (token: string, spreadsheetId: string): Prom
     // 2. Expand existing tabs if column count is too small (prevent "exceeds grid limits" on column AE)
     const expandRequests: any[] = [];
     existingSheets.forEach(s => {
-      const title = s.properties?.title;
       const sheetId = s.properties?.sheetId;
       const colCount = s.properties?.gridProperties?.columnCount || 26;
-      if (title === 'SVC' && colCount < 35 && sheetId !== undefined) {
+      if (sheetId !== undefined && colCount < 40) {
         expandRequests.push({
-          updateSheetProperties: {
-            properties: {
-              sheetId,
-              gridProperties: { columnCount: 36, frozenRowCount: 1 },
-            },
-            fields: 'gridProperties.columnCount,gridProperties.frozenRowCount',
-          },
-        });
-      }
-      if (title === 'Compliance_Jobs' && colCount < 35 && sheetId !== undefined) {
-        expandRequests.push({
-          updateSheetProperties: {
-            properties: {
-              sheetId,
-              gridProperties: { columnCount: 35, frozenRowCount: 1 },
-            },
-            fields: 'gridProperties.columnCount,gridProperties.frozenRowCount',
+          appendDimension: {
+            sheetId,
+            dimension: 'COLUMNS',
+            length: 40 - colCount,
           },
         });
       }
@@ -1265,25 +1251,8 @@ export const handler = async (event: any) => {
         };
       }
 
-      // Clear data rows (row 2 onwards) ONLY for tables that have incoming records, or if forceClear is set
-      const clearRanges: string[] = [];
-      if (incomingJobsCount > 0 || payload.forceClear) clearRanges.push('Compliance_Jobs!A2:AE');
-      if (incomingVehiclesCount > 0 || payload.forceClear) clearRanges.push('Vehicles!A2:J');
-      if (incomingWorkshopsCount > 0 || payload.forceClear) clearRanges.push('RAW_Workshops!A2:G');
-      if (incomingReportsCount > 0 || payload.forceClear) clearRanges.push('Model_Reports!A2:M');
-      if (incomingJobsCount > 0 || payload.forceClear) clearRanges.push('SVC!A2:AE');
-
-      if (clearRanges.length > 0) {
-        try {
-          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ranges: clearRanges }),
-          });
-        } catch (clearErr) {
-          console.warn('Batch clear before sync notice:', clearErr);
-        }
-      }
+      // Write rows starting at cell A1 directly. Overwriting from A1 ensures headers
+      // and rows are updated atomically without ever leaving the sheet blank.
 
       // Pre-fetch vehicle folders in Drive to build direct hyperlinks
       const folderMap = new Map<string, { id: string; webViewLink: string }>();
@@ -1412,7 +1381,7 @@ export const handler = async (event: any) => {
           ]);
         });
 
-        updateData.push({ range: 'Compliance_Jobs!A1:AE', values: jobRows });
+        updateData.push({ range: 'Compliance_Jobs!A1', values: jobRows });
       }
 
       // 2. Vehicles
@@ -1426,7 +1395,7 @@ export const handler = async (event: any) => {
 
         tables.vehicles.forEach((v: any, idx: number) => {
           const rowNum = idx + 2;
-          const workshopFormula = `=IFERROR(XLOOKUP(D${rowNum}, RAW_Workshops!A:A, RAW_Workshops!B:B), "${(v.raw_workshop_name || '').replace(/"/g, '""')}")`;
+          const workshopFormula = `=IFERROR(XLOOKUP(D${rowNum}, RAW_Workshops!A:A, RAW_Workshops!B:B), "${(v.raw_workshop_name || '').replace(/[\r\n]+/g, ' ').replace(/"/g, '""')}")`;
           vehicleRows.push([
             v.vin || '',
             v.build_date || '',
@@ -1441,7 +1410,7 @@ export const handler = async (event: any) => {
           ]);
         });
 
-        updateData.push({ range: 'Vehicles!A1:J', values: vehicleRows });
+        updateData.push({ range: 'Vehicles!A1', values: vehicleRows });
       }
 
       // 3. RAW_Workshops
@@ -1467,15 +1436,15 @@ export const handler = async (event: any) => {
           ]);
         });
 
-        updateData.push({ range: 'RAW_Workshops!A1:G', values: workshopRows });
+        updateData.push({ range: 'RAW_Workshops!A1', values: workshopRows });
       }
 
       // 4. Model_Reports
       if (Array.isArray(tables.modelReports)) {
         const reportRows: any[][] = [
           [
-            'MRE #', 'Unique ID', 'Make', 'Model', 'SEV #', 'Category (VCC)',
-            'Build From', 'Build To', 'Tare (kg)', 'Power (kW)', 'Seats',
+            'MRE #', 'Unique ID', 'Make', 'Model', 'SEV #', 'Build From', 'Build To',
+            'SEV Build From', 'SEV Build To', 'Category (VCC)', 'Tare (kg)', 'Power (kW)', 'Seats',
             'Author', 'Created At'
           ]
         ];
@@ -1500,7 +1469,7 @@ export const handler = async (event: any) => {
           ]);
         });
 
-        updateData.push({ range: 'Model_Reports!A1:O', values: reportRows });
+        updateData.push({ range: 'Model_Reports!A1', values: reportRows });
       }
 
       // 5. SVC Tab (Consolidated view combining all 4 tables into requested 31 columns)
@@ -1596,10 +1565,11 @@ export const handler = async (event: any) => {
           ]);
         });
 
-        updateData.push({ range: 'SVC!A1:AE', values: svcRows });
+        updateData.push({ range: 'SVC!A1', values: svcRows });
       }
 
       let refreshedTokenToReturn: string | null = null;
+      const syncedTabs: string[] = [];
 
       if (updateData.length > 0) {
         let writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
@@ -1647,30 +1617,58 @@ export const handler = async (event: any) => {
           } catch (_) {}
         }
 
-        if (!writeRes.ok) {
+        if (writeRes.ok) {
+          updateData.forEach(d => syncedTabs.push(d.range.split('!')[0]));
+        } else {
+          // If combined batch update failed, try individual table writes as resilient fallback
           const errText = await writeRes.text();
-          if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {
-            return {
-              statusCode: 403,
-              headers,
-              body: JSON.stringify({
-                error: 'Google Sheets API is disabled for Google Cloud Project 43512054136. Please enable it in Google Cloud Console.',
-                enableApiUrl: 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136',
-                apiDisabled: true,
-              }),
-            };
+          console.warn('[drive-sync] Combined batchUpdate notice, falling back to per-table write:', errText);
+
+          for (const item of updateData) {
+            try {
+              const tabName = item.range.split('!')[0];
+              const singleRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  valueInputOption: 'USER_ENTERED',
+                  data: [item],
+                }),
+              });
+              if (singleRes.ok) {
+                syncedTabs.push(tabName);
+              } else {
+                console.warn(`[drive-sync] Tab ${tabName} single update notice:`, await singleRes.text());
+              }
+            } catch (singleErr) {
+              console.warn(`[drive-sync] Tab write exception:`, singleErr);
+            }
           }
-          if (writeRes.status === 401 || errText.includes('UNAUTHENTICATED') || errText.includes('invalid authentication credentials')) {
-            return {
-              statusCode: 401,
-              headers,
-              body: JSON.stringify({
-                error: 'Google session expired. Please reconnect your Google account.',
-                authExpired: true,
-              }),
-            };
+
+          if (syncedTabs.length === 0) {
+            if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {
+              return {
+                statusCode: 403,
+                headers,
+                body: JSON.stringify({
+                  error: 'Google Sheets API is disabled for Google Cloud Project 43512054136. Please enable it in Google Cloud Console.',
+                  enableApiUrl: 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136',
+                  apiDisabled: true,
+                }),
+              };
+            }
+            if (writeRes.status === 401 || errText.includes('UNAUTHENTICATED') || errText.includes('invalid authentication credentials')) {
+              return {
+                statusCode: 401,
+                headers,
+                body: JSON.stringify({
+                  error: 'Google session expired. Please reconnect your Google account.',
+                  authExpired: true,
+                }),
+              };
+            }
+            return { statusCode: writeRes.status, headers, body: JSON.stringify({ error: `Failed to write sheet values: ${errText}` }) };
           }
-          return { statusCode: writeRes.status, headers, body: JSON.stringify({ error: `Failed to write sheet values: ${errText}` }) };
         }
       }
 
@@ -1679,7 +1677,7 @@ export const handler = async (event: any) => {
         headers,
         body: JSON.stringify({
           success: true,
-          syncedTabs: updateData.map(d => d.range.split('!')[0]),
+          syncedTabs: syncedTabs.length > 0 ? syncedTabs : ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'],
           spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
           refreshedAccessToken: refreshedTokenToReturn,
         }),
@@ -1693,7 +1691,7 @@ export const handler = async (event: any) => {
       }
 
       let refreshedTokenToReturn: string | null = null;
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:AE&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:O&ranges=SVC!A1:AE`;
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs&ranges=Vehicles&ranges=RAW_Workshops&ranges=Model_Reports&ranges=SVC`;
       let readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
 
       // If 401 UNAUTHENTICATED, attempt server-side token refresh via refreshToken

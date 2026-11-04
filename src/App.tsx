@@ -485,8 +485,16 @@ export const App: React.FC = () => {
           workshops,
           modelReports
         );
-      } catch (sheetSyncErr) {
-        console.warn('Sheets sync on job save error:', sheetSyncErr);
+        setSheetsFeedback('✓ Saved & Synced to Master Google Sheet');
+        setTimeout(() => setSheetsFeedback(null), 4000);
+      } catch (sheetSyncErr: any) {
+        console.warn('Sheets sync on job save notice:', sheetSyncErr);
+        if (sheetSyncErr?.message?.includes('Google authorization') || sheetSyncErr?.message?.includes('expired') || sheetSyncErr?.authExpired) {
+          setIsAuthExpired(true);
+        } else {
+          setSheetsFeedback(`Sheet sync notice: ${sheetSyncErr.message || 'Error syncing to Google Sheet'}`);
+          setTimeout(() => setSheetsFeedback(null), 6000);
+        }
       }
     }
 
@@ -512,8 +520,16 @@ export const App: React.FC = () => {
           workshops,
           modelReports
         );
-      } catch (sheetSyncErr) {
-        console.warn('Sheets sync on vehicle save error:', sheetSyncErr);
+        setSheetsFeedback('✓ Vehicle Saved & Synced to Master Google Sheet');
+        setTimeout(() => setSheetsFeedback(null), 4000);
+      } catch (sheetSyncErr: any) {
+        console.warn('Sheets sync on vehicle save notice:', sheetSyncErr);
+        if (sheetSyncErr?.message?.includes('Google authorization') || sheetSyncErr?.message?.includes('expired') || sheetSyncErr?.authExpired) {
+          setIsAuthExpired(true);
+        } else {
+          setSheetsFeedback(`Sheet sync notice: ${sheetSyncErr.message || 'Error syncing to Google Sheet'}`);
+          setTimeout(() => setSheetsFeedback(null), 6000);
+        }
       }
     }
 
@@ -539,8 +555,16 @@ export const App: React.FC = () => {
           updatedWorkshops,
           modelReports
         );
-      } catch (sheetSyncErr) {
-        console.warn('Sheets sync on workshop save error:', sheetSyncErr);
+        setSheetsFeedback('✓ RAW Workshop Saved & Synced to Master Google Sheet');
+        setTimeout(() => setSheetsFeedback(null), 4000);
+      } catch (sheetSyncErr: any) {
+        console.warn('Sheets sync on workshop save notice:', sheetSyncErr);
+        if (sheetSyncErr?.message?.includes('Google authorization') || sheetSyncErr?.message?.includes('expired') || sheetSyncErr?.authExpired) {
+          setIsAuthExpired(true);
+        } else {
+          setSheetsFeedback(`Sheet sync notice: ${sheetSyncErr.message || 'Error syncing to Google Sheet'}`);
+          setTimeout(() => setSheetsFeedback(null), 6000);
+        }
       }
     }
 
@@ -566,8 +590,16 @@ export const App: React.FC = () => {
           workshops,
           updatedReports
         );
-      } catch (sheetSyncErr) {
-        console.warn('Sheets sync on model report save error:', sheetSyncErr);
+        setSheetsFeedback('✓ Model Report Saved & Synced to Master Google Sheet');
+        setTimeout(() => setSheetsFeedback(null), 4000);
+      } catch (sheetSyncErr: any) {
+        console.warn('Sheets sync on model report save notice:', sheetSyncErr);
+        if (sheetSyncErr?.message?.includes('Google authorization') || sheetSyncErr?.message?.includes('expired') || sheetSyncErr?.authExpired) {
+          setIsAuthExpired(true);
+        } else {
+          setSheetsFeedback(`Sheet sync notice: ${sheetSyncErr.message || 'Error syncing to Google Sheet'}`);
+          setTimeout(() => setSheetsFeedback(null), 6000);
+        }
       }
     }
 
