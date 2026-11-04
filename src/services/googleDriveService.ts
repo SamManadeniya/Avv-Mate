@@ -1202,7 +1202,7 @@ class GoogleDriveService {
     file: File,
     onProgress?: (percent: number) => void
   ): Promise<DriveUploadedFile> {
-    const token = this.config.accessToken;
+    const token = await this.getValidToken() || this.config.accessToken;
     if (!token) throw new Error('Google Drive access token is not set.');
 
     // If it's a video or > 4.5MB, use Resumable Upload to avoid 6MB serverless payload limit
@@ -1238,6 +1238,9 @@ class GoogleDriveService {
           mimeType: file.type || 'image/jpeg',
           base64Data,
           accessToken: token,
+          refreshToken: this.config.refreshToken,
+          clientId: this.config.clientId,
+          clientSecret: this.config.clientSecret,
         }),
       });
 

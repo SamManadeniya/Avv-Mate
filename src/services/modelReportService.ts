@@ -28,6 +28,7 @@ export const modelReportService = {
       .from('model_reports')
       .insert([{
         mre_no: report.mre_no.toUpperCase().trim(),
+        unique_id: report.unique_id?.trim() || null,
         make: report.make.trim(),
         model: report.model.trim(),
         sev_no: report.sev_no?.trim() || null,
@@ -45,13 +46,17 @@ export const modelReportService = {
       .single();
 
     if (error) throw error;
-    return data as ModelReport;
+    return {
+      ...(data as ModelReport),
+      unique_id: (data as any)?.unique_id || report.unique_id || null,
+    };
   },
 
   async update(mreNo: string, updates: Partial<ModelReport>): Promise<ModelReport> {
     const { data, error } = await supabase
       .from('model_reports')
       .update({
+        unique_id: updates.unique_id !== undefined ? (updates.unique_id?.trim() || null) : undefined,
         make: updates.make?.trim(),
         model: updates.model?.trim(),
         sev_no: updates.sev_no?.trim() || null,
@@ -70,7 +75,10 @@ export const modelReportService = {
       .single();
 
     if (error) throw error;
-    return data as ModelReport;
+    return {
+      ...(data as ModelReport),
+      unique_id: (data as any)?.unique_id || updates.unique_id || null,
+    };
   },
 
   async delete(mreNo: string): Promise<void> {

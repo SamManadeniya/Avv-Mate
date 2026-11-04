@@ -327,12 +327,16 @@ const ensureMasterSheetTabs = async (token: string, spreadsheetId: string): Prom
     const requiredTabs = ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'];
     const missing = requiredTabs.filter(t => !existingTitles.includes(t));
 
+    // 1. Add any missing tabs with sufficient grid columns (SVC needs 31 columns: A through AE)
     if (missing.length > 0) {
       const addRequests = missing.map(tabTitle => ({
         addSheet: {
           properties: {
             title: tabTitle,
-            gridProperties: { frozenRowCount: 1 },
+            gridProperties: {
+              columnCount: tabTitle === 'SVC' ? 36 : tabTitle === 'Compliance_Jobs' ? 35 : 26,
+              frozenRowCount: 1,
+            },
           },
         },
       }));
@@ -343,7 +347,74 @@ const ensureMasterSheetTabs = async (token: string, spreadsheetId: string): Prom
       });
     }
 
-    // If "Sheet1" exists and we have other tabs, delete Sheet1
+    // 2. Expand existing tabs if column count is too small (prevent "exceeds grid limits" on column AE)
+    const expandRequests: any[] = [];
+    existingSheets.forEach(s => {
+      const title = s.properties?.title;
+      const sheetId = s.properties?.sheetId;
+      const colCount = s.properties?.gridProperties?.columnCount || 26;
+      if (title === 'SVC' && colCount < 35 && sheetId !== undefined) {
+        expandRequests.push({
+          updateSheetProperties: {
+            properties: {
+              sheetId,
+              gridProperties: { columnCount: 36, frozenRowCount: 1 },
+            },
+            fields: 'gridProperties.columnCount,gridProperties.frozenRowCount',
+          },
+        });
+      }
+      if (title === 'Compliance_Jobs' && colCount < 35 && sheetId !== undefined) {
+        expandRequests.push({
+          updateSheetProperties: {
+            properties: {
+              sheetId,
+              gridProperties: { columnCount: 35, frozenRowCount: 1 },
+            },
+            fields: 'gridProperties.columnCount,gridProperties.frozenRowCount',
+          },
+        });
+      }
+    });
+
+    if (expandRequests.length > 0) {
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requests: expandRequests }),
+      });
+    }
+
+    // 3. Ensure SVC header row (SVC!A1:AE1) is never empty
+    try {
+      const svcHeadRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SVC!A1:AE1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (svcHeadRes.ok) {
+        const svcData = await svcHeadRes.json();
+        if (!svcData.values || svcData.values.length === 0 || !svcData.values[0] || svcData.values[0].length === 0) {
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SVC!A1:AE1?valueInputOption=USER_ENTERED`, {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              range: 'SVC!A1:AE1',
+              values: [
+                [
+                  'Customer Request Recieved', 'Folder #', 'VIN #', 'Build Date', 'Make as per MRE',
+                  'Model as per MRE', 'MRE No', 'Build date range', 'SEV No', 'Build date range (SEV)',
+                  'VIA#', 'EXP CERT', 'CIN', 'WI', 'DC', 'VI', 'PHOTOS', 'RAW DECLA',
+                  'Model Report Author', 'Model Report Unique ID', 'CMPL RAW', 'Recall Check',
+                  'AVV Verification Date', 'AVV Submit Date', 'RAV Date of Entry', 'Approval Payment Date',
+                  'VCC', 'Approval Holder', 'Tare', 'Power (kW)', 'Seats'
+                ]
+              ],
+            }),
+          });
+        }
+      }
+    } catch (_) {}
+
+    // 4. If "Sheet1" exists and we have other tabs, delete Sheet1
     const sheet1 = existingSheets.find(s => s.properties?.title === 'Sheet1');
     if (sheet1 && (existingTitles.length + missing.length) > 1 && sheet1.properties?.sheetId !== undefined) {
       try {
@@ -738,13 +809,49 @@ export const handler = async (event: any) => {
       }
 
       const fileBuffer = Buffer.from(base64, 'base64');
-      const uploaded = await uploadFileBufferServer(
-        token,
-        folderId,
-        fileName,
-        mimeType,
-        fileBuffer
-      );
+      let uploaded: any;
+      try {
+        uploaded = await uploadFileBufferServer(
+          token,
+          folderId,
+          fileName,
+          mimeType,
+          fileBuffer
+        );
+      } catch (upErr: any) {
+        // If upload fails, attempt auto-refresh of token and retry
+        const rToken = payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+        const clientId = payload.clientId || process.env.GOOGLE_DRIVE_CLIENT_ID || '43512054136-hm8pg6tue7uajtb11i4nqmpndng6ik05.apps.googleusercontent.com';
+        const clientSecret = payload.clientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || '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';
+        if (rToken) {
+          try {
+            const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                client_id: clientId,
+                client_secret: clientSecret,
+                refresh_token: rToken,
+                grant_type: 'refresh_token',
+              }).toString(),
+            });
+            if (tokenRes.ok) {
+              const tData = await tokenRes.json();
+              if (tData.access_token) {
+                token = tData.access_token;
+                uploaded = await uploadFileBufferServer(
+                  token,
+                  folderId,
+                  fileName,
+                  mimeType,
+                  fileBuffer
+                );
+              }
+            }
+          } catch (_) {}
+        }
+        if (!uploaded) throw upErr;
+      }
 
       return {
         statusCode: 200,
@@ -1657,23 +1764,52 @@ export const handler = async (event: any) => {
 
       // Range 3: Model_Reports (parsed second for cross-referencing)
       const reportsRaw = ranges[3]?.values || [];
-      const hasUniqueIdCol = reportsRaw[0] && String(reportsRaw[0][1] || '').toLowerCase().includes('unique');
+      const reportHeaders = (reportsRaw[0] || []).map((h: any) => String(h || '').toLowerCase().trim());
+
+      const mreIdx = reportHeaders.findIndex(h => h.includes('mre'));
+      const uniqueIdx = reportHeaders.findIndex(h => h.includes('unique'));
+      const makeIdx = reportHeaders.findIndex(h => h === 'make');
+      const modelIdx = reportHeaders.findIndex(h => h === 'model');
+      const sevIdx = reportHeaders.findIndex(h => h.includes('sev') && !h.includes('build'));
+      const vccIdx = reportHeaders.findIndex(h => h.includes('vcc') || h.includes('category'));
+      const buildFromIdx = reportHeaders.findIndex(h => h.includes('build from') || h === 'from');
+      const buildToIdx = reportHeaders.findIndex(h => h.includes('build to') || h === 'to');
+      const tareIdx = reportHeaders.findIndex(h => h.includes('tare'));
+      const powerIdx = reportHeaders.findIndex(h => h.includes('power'));
+      const seatsIdx = reportHeaders.findIndex(h => h.includes('seats'));
+      const authorIdx = reportHeaders.findIndex(h => h.includes('author') || h.includes('supplier'));
+      const createdAtIdx = reportHeaders.findIndex(h => h.includes('created'));
+
       const modelReports = reportsRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[]) => {
-        const offset = hasUniqueIdCol ? 1 : 0;
+        const uniqueFound = uniqueIdx >= 0;
+        const mreNo = mreIdx >= 0 ? r[mreIdx] : r[0];
+        const uniqueId = uniqueIdx >= 0 ? r[uniqueIdx] : null;
+        const make = makeIdx >= 0 ? r[makeIdx] : (uniqueFound ? r[2] : r[1]);
+        const model = modelIdx >= 0 ? r[modelIdx] : (uniqueFound ? r[3] : r[2]);
+        const sevNo = sevIdx >= 0 ? r[sevIdx] : (uniqueFound ? r[4] : r[3]);
+        const vcc = vccIdx >= 0 ? r[vccIdx] : (uniqueFound ? r[5] : r[4]);
+        const buildFrom = buildFromIdx >= 0 ? r[buildFromIdx] : (uniqueFound ? r[6] : r[5]);
+        const buildTo = buildToIdx >= 0 ? r[buildToIdx] : (uniqueFound ? r[7] : r[6]);
+        const tareVal = tareIdx >= 0 ? r[tareIdx] : (uniqueFound ? r[8] : r[7]);
+        const powerVal = powerIdx >= 0 ? r[powerIdx] : (uniqueFound ? r[9] : r[8]);
+        const seatsVal = seatsIdx >= 0 ? r[seatsIdx] : (uniqueFound ? r[10] : r[9]);
+        const authorVal = authorIdx >= 0 ? r[authorIdx] : (uniqueFound ? r[11] : r[10]);
+        const createdVal = createdAtIdx >= 0 ? r[createdAtIdx] : (uniqueFound ? r[12] : r[11]);
+
         return {
-          mre_no: String(r[0]).trim(),
-          unique_id: hasUniqueIdCol ? (r[1] || null) : null,
-          make: String(r[1 + offset] || '').trim(),
-          model: String(r[2 + offset] || '').trim(),
-          sev_no: r[3 + offset] || null,
-          vcc: r[4 + offset] || null,
-          build_from: r[5 + offset] || null,
-          build_to: r[6 + offset] || null,
-          tare_kg: r[7 + offset] ? parseFloat(r[7 + offset]) : null,
-          power_kw: r[8 + offset] ? parseFloat(r[8 + offset]) : null,
-          seats: r[9 + offset] ? parseInt(r[9 + offset], 10) : null,
-          author: r[10 + offset] || null,
-          created_at: r[11 + offset] || new Date().toISOString(),
+          mre_no: String(mreNo || '').trim(),
+          unique_id: uniqueId ? String(uniqueId).trim() : null,
+          make: String(make || '').trim(),
+          model: String(model || '').trim(),
+          sev_no: sevNo ? String(sevNo).trim() : null,
+          vcc: vcc ? String(vcc).trim() : null,
+          build_from: buildFrom ? String(buildFrom).trim() : null,
+          build_to: buildTo ? String(buildTo).trim() : null,
+          tare_kg: tareVal ? parseFloat(tareVal) : null,
+          power_kw: powerVal ? parseFloat(powerVal) : null,
+          seats: seatsVal ? parseInt(seatsVal, 10) : null,
+          author: authorVal ? String(authorVal).trim() : null,
+          created_at: createdVal || new Date().toISOString(),
         };
       });
       const reportMap = new Map(modelReports.map(m => [m.mre_no.toUpperCase(), m]));

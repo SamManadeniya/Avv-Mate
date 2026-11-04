@@ -158,6 +158,10 @@ export const ModelReportModal: React.FC<ModelReportModalProps> = ({
         };
       }
 
+      if (savedReport) {
+        savedReport.unique_id = cleanUniqueId;
+      }
+
       await onSaved(savedReport);
       onClose();
     } catch (err: any) {

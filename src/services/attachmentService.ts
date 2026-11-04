@@ -54,9 +54,28 @@ export const attachmentService = {
     }
 
     // Upsert into public.job_attachments
-    const { data, error: dbError } = await supabase
-      .from('job_attachments')
-      .upsert({
+    try {
+      const { data, error: dbError } = await supabase
+        .from('job_attachments')
+        .upsert({
+          job_id: jobId,
+          doc_type: docType,
+          file_url: publicUrl,
+          file_name: file.name,
+          file_size: file.size,
+          mime_type: file.type,
+          uploaded_at: new Date().toISOString()
+        }, {
+          onConflict: 'job_id,doc_type'
+        })
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+      return data as JobAttachment;
+    } catch (dbErr) {
+      console.warn(`Supabase job_attachments record insert skipped/fallback for ${docType}:`, dbErr);
+      return {
         job_id: jobId,
         doc_type: docType,
         file_url: publicUrl,
@@ -64,14 +83,8 @@ export const attachmentService = {
         file_size: file.size,
         mime_type: file.type,
         uploaded_at: new Date().toISOString()
-      }, {
-        onConflict: 'job_id,doc_type'
-      })
-      .select()
-      .single();
-
-    if (dbError) throw dbError;
-    return data as JobAttachment;
+      };
+    }
   },
 
   async deleteAttachment(jobId: string, docType: DocType, fileUrl?: string): Promise<void> {

@@ -310,3 +310,8 @@ ON CONFLICT (mre_no) DO NOTHING;
 INSERT INTO public.vehicles (vin, build_date, via_no, raw_id, mre_no) VALUES
 ('6ZZLLA400K0042734', '07/2020', 'CRE-145420', 'RAW-000153', 'MRE-000694')
 ON CONFLICT (vin) DO NOTHING;
+
+-- 9. NON-DESTRUCTIVE MIGRATIONS (FOR RECALL DOC & UNIQUE ID)
+ALTER TABLE public.model_reports ADD COLUMN IF NOT EXISTS unique_id VARCHAR(100);
+ALTER TABLE public.job_attachments DROP CONSTRAINT IF EXISTS job_attachments_doc_type_check;
+ALTER TABLE public.job_attachments ADD CONSTRAINT job_attachments_doc_type_check CHECK (doc_type IN ('CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RECALL', 'PHOTOS'));

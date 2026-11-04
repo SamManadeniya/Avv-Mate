@@ -595,7 +595,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
     try {
       let savedJob: ComplianceJob;
-      const uploadedAttachments: Record<string, { name: string; url: string; mimeType: string; docType: DocType }> = {};
+      const uploadedAttachments: Record<string, { name: string; url: string; mimeType: string; docType: DocType; fileObject?: File }> = {};
 
       if (jobToEdit) {
         try {
@@ -680,14 +680,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
         // Upload any queued attachments from creation form to Supabase Storage if available
         for (const [docKey, att] of Object.entries(attachments)) {
-          if (att?._fileObject) {
+          const fileObj = att?._fileObject || (att as any)?.fileObject;
+          if (fileObj) {
             try {
-              const uploadedAtt = await attachmentService.uploadFile(savedJob.id, docKey as DocType, att._fileObject);
+              const uploadedAtt = await attachmentService.uploadFile(savedJob.id, docKey as DocType, fileObj);
               uploadedAttachments[docKey] = {
                 name: uploadedAtt.file_name,
                 url: uploadedAtt.file_url,
                 mimeType: uploadedAtt.mime_type || att.mime_type || 'application/pdf',
                 docType: docKey as DocType,
+                fileObject: fileObj,
               };
             } catch (upErr) {
               console.warn(`Supabase upload skipped for ${docKey}:`, upErr);
@@ -696,6 +698,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 url: att.file_url,
                 mimeType: att.mime_type || 'application/pdf',
                 docType: docKey as DocType,
+                fileObject: fileObj,
               };
             }
           } else if (att?.file_url) {
@@ -710,7 +713,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       }
 
       // Automatically create Drive folder tree and push attachments on save
-      if (googleDriveService.isConfigured() && googleDriveService.isTokenValid()) {
+      if (googleDriveService.isConfigured()) {
         const cleanNo = folderNo.toUpperCase().trim();
         const attList = Object.values(uploadedAttachments);
 
