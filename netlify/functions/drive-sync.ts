@@ -19,6 +19,7 @@ interface RequestBody {
     vehicles?: any[];
     workshops?: any[];
     modelReports?: any[];
+    invoices?: any[];
   };
   hierarchy?: {
     docsFolder?: { id: string };
@@ -335,7 +336,7 @@ const ensureMasterSheetTabs = async (token: string, spreadsheetId: string): Prom
     const existingSheets = (metaData.sheets || []) as any[];
     const existingTitles = existingSheets.map(s => s.properties?.title);
 
-    const requiredTabs = ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'];
+    const requiredTabs = ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC', 'Invoices'];
     const missing = requiredTabs.filter(t => !existingTitles.includes(t));
 
     // 1. Add any missing tabs with sufficient grid columns (SVC needs 31 columns: A through AE)
@@ -345,7 +346,7 @@ const ensureMasterSheetTabs = async (token: string, spreadsheetId: string): Prom
           properties: {
             title: tabTitle,
             gridProperties: {
-              columnCount: tabTitle === 'SVC' ? 36 : tabTitle === 'Compliance_Jobs' ? 35 : 26,
+              columnCount: tabTitle === 'SVC' ? 36 : tabTitle === 'Compliance_Jobs' ? 35 : tabTitle === 'Invoices' ? 20 : 26,
               frozenRowCount: 1,
             },
           },
@@ -1577,6 +1578,39 @@ export const handler = async (event: any) => {
         });
 
         updateData.push({ range: 'SVC!A1', values: svcRows });
+      }
+
+      // 6. Invoices Tab
+      if (Array.isArray(tables.invoices)) {
+        const invoiceRows: any[][] = [
+          [
+            'Invoice #', 'Customer Name', 'RAW ID', 'VIN', 'Invoice Date',
+            'Due Date', 'Terms', 'Subtotal ($)', 'Tax Amount ($)', 'Total Amount ($)',
+            'Amount Paid ($)', 'Balance Due ($)', 'Status', 'Notes', 'Created At'
+          ]
+        ];
+
+        tables.invoices.forEach((inv: any) => {
+          invoiceRows.push([
+            inv.invoice_no || '',
+            inv.customer_name || '',
+            inv.raw_id || '',
+            inv.vin || '',
+            inv.invoice_date || '',
+            inv.due_date || '',
+            inv.terms || '',
+            inv.subtotal != null ? Number(inv.subtotal).toFixed(2) : '0.00',
+            inv.tax_amount != null ? Number(inv.tax_amount).toFixed(2) : '0.00',
+            inv.total_amount != null ? Number(inv.total_amount).toFixed(2) : '0.00',
+            inv.amount_paid != null ? Number(inv.amount_paid).toFixed(2) : '0.00',
+            inv.balance_due != null ? Number(inv.balance_due).toFixed(2) : '0.00',
+            inv.status ? String(inv.status).toUpperCase() : 'DRAFT',
+            (inv.customer_notes || inv.notes || '').replace(/[\r\n]+/g, ' '),
+            inv.created_at || ''
+          ]);
+        });
+
+        updateData.push({ range: 'Invoices!A1', values: invoiceRows });
       }
 
       let refreshedTokenToReturn: string | null = null;

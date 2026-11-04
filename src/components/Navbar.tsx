@@ -8,10 +8,11 @@ import {
   HardDrive,
   FileSpreadsheet,
   RefreshCw,
-  Database
+  Database,
+  Receipt
 } from 'lucide-react';
 
-export type ActiveTab = 'jobs' | 'vehicles' | 'workshops' | 'reports';
+export type ActiveTab = 'jobs' | 'vehicles' | 'workshops' | 'reports' | 'invoices';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -28,6 +29,7 @@ interface NavbarProps {
     vehicles: number;
     workshops: number;
     reports: number;
+    invoices?: number;
   };
   isDriveConnected?: boolean;
   isSheetsPrimary?: boolean;
@@ -71,6 +73,12 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: 'Model Reports',
       icon: <FileText className="w-4 h-4" />,
       count: counts.reports,
+    },
+    {
+      id: 'invoices',
+      label: 'Invoices',
+      icon: <Receipt className="w-4 h-4" />,
+      count: counts.invoices ?? 0,
     },
   ];
 

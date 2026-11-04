@@ -115,3 +115,49 @@ export interface NotificationItem {
   totalDocsCount: number;
 }
 
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue';
+
+export interface InvoiceItem {
+  id: string;
+  item_details: string;
+  quantity: number;
+  unit?: string;
+  rate: number;
+  tax_rate: number;
+  tax_name?: string;
+  amount: number;
+}
+
+export interface Invoice {
+  id: string;
+  invoice_no: string;
+  customer_name: string;
+  customer_address?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  raw_id?: string | null;
+  vin?: string | null;
+  folder_no?: string | null;
+  invoice_date: string;
+  terms: string;
+  due_date: string;
+  items: InvoiceItem[];
+  subtotal: number;
+  tax_amount: number;
+  total_amount: number;
+  amount_paid?: number;
+  balance_due: number;
+  status: InvoiceStatus;
+  customer_notes?: string | null;
+  terms_and_conditions?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PresetInvoiceService {
+  name: string;
+  rate: number;
+  description?: string;
+}
+
+

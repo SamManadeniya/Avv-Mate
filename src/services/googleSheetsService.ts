@@ -1,5 +1,5 @@
 import { googleDriveService } from './googleDriveService';
-import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport } from '../types';
+import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport, Invoice } from '../types';
 import {
   DEFAULT_COMPLIANCE_JOBS,
   DEFAULT_VEHICLES,
@@ -19,6 +19,7 @@ export interface MasterSheetTablesData {
   vehicles: Vehicle[];
   workshops: RawWorkshop[];
   modelReports: ModelReport[];
+  invoices?: Invoice[];
 }
 
 class GoogleSheetsService {
@@ -297,23 +298,25 @@ class GoogleSheetsService {
     jobs: ComplianceJob[],
     vehicles: Vehicle[],
     workshops: RawWorkshop[],
-    modelReports: ModelReport[]
+    modelReports: ModelReport[],
+    invoices?: Invoice[]
   ): Promise<{ success: boolean; spreadsheetUrl: string; syncedTabs: string[] }> {
     const totalIncoming =
       (jobs?.length || 0) +
       (vehicles?.length || 0) +
       (workshops?.length || 0) +
-      (modelReports?.length || 0);
+      (modelReports?.length || 0) +
+      (invoices?.length || 0);
 
     const sheet = await this.getMasterSpreadsheet();
 
-    // Prevent wiping: if all 4 arrays are completely empty, abort sync to protect Google Sheet data
+    // Prevent wiping: if all arrays are completely empty, abort sync to protect Google Sheet data
     if (totalIncoming === 0) {
       console.warn('syncAllDataToMasterSheet skipped: All tables are empty. Existing Google Sheet data preserved.');
       return {
         success: false,
         spreadsheetUrl: sheet.webViewLink,
-        syncedTabs: ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'],
+        syncedTabs: ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC', 'Invoices'],
       };
     }
 
@@ -322,6 +325,15 @@ class GoogleSheetsService {
     const finalVehicles = (vehicles && vehicles.length > 0) ? vehicles : (cached?.vehicles && cached.vehicles.length > 0 ? cached.vehicles : DEFAULT_VEHICLES);
     const finalWorkshops = (workshops && workshops.length > 0) ? workshops : (cached?.workshops && cached.workshops.length > 0 ? cached.workshops : DEFAULT_RAW_WORKSHOPS);
     const finalReports = (modelReports && modelReports.length > 0) ? modelReports : (cached?.modelReports && cached.modelReports.length > 0 ? cached.modelReports : DEFAULT_MODEL_REPORTS);
+
+    // Resolve invoices from parameter or localStorage
+    let finalInvoices: Invoice[] = invoices || [];
+    if (!invoices || invoices.length === 0) {
+      try {
+        const raw = localStorage.getItem('avv_mate_invoices_cache');
+        if (raw) finalInvoices = JSON.parse(raw);
+      } catch (_) {}
+    }
 
     // Immediately persist snapshot into localStorage so refresh/reload never loses data
     this.setCachedMasterData({ jobs: finalJobs, vehicles: finalVehicles, workshops: finalWorkshops, modelReports: finalReports });
@@ -332,7 +344,7 @@ class GoogleSheetsService {
       return {
         success: true,
         spreadsheetUrl: sheet.webViewLink,
-        syncedTabs: ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'],
+        syncedTabs: ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC', 'Invoices'],
       };
     }
 
@@ -348,6 +360,7 @@ class GoogleSheetsService {
         vehicles: finalVehicles,
         workshops: finalWorkshops,
         modelReports: finalReports,
+        invoices: finalInvoices,
       },
     };
 

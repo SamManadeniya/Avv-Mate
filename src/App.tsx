@@ -5,11 +5,14 @@ import { ComplianceJobsView } from './components/views/ComplianceJobsView';
 import { VehiclesView } from './components/views/VehiclesView';
 import { WorkshopsView } from './components/views/WorkshopsView';
 import { ModelReportsView } from './components/views/ModelReportsView';
+import { InvoicesView } from './components/views/InvoicesView';
 
 import { ComplianceJobModal } from './components/modals/ComplianceJobModal';
 import { VehicleModal } from './components/modals/VehicleModal';
 import { WorkshopModal } from './components/modals/WorkshopModal';
 import { ModelReportModal } from './components/modals/ModelReportModal';
+import { InvoiceModal } from './components/modals/InvoiceModal';
+import { InvoicePreviewModal } from './components/invoices/InvoicePreviewModal';
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
 import { RequestDocsModal } from './components/modals/RequestDocsModal';
 import { GoogleDriveConfigModal } from './components/modals/GoogleDriveConfigModal';
@@ -18,6 +21,7 @@ import { complianceJobService } from './services/complianceJobService';
 import { vehicleService } from './services/vehicleService';
 import { workshopService } from './services/workshopService';
 import { modelReportService } from './services/modelReportService';
+import { invoiceService } from './services/invoiceService';
 import { googleDriveService } from './services/googleDriveService';
 import { googleSheetsService } from './services/googleSheetsService';
 import {
@@ -27,7 +31,7 @@ import {
   DEFAULT_MODEL_REPORTS,
 } from './data/seedData';
 
-import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport } from './types';
+import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport, Invoice } from './types';
 import { RefreshCw, FileSpreadsheet, AlertTriangle, ExternalLink } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -47,6 +51,7 @@ export const App: React.FC = () => {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [workshops, setWorkshops] = useState<RawWorkshop[]>([]);
   const [modelReports, setModelReports] = useState<ModelReport[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
 
   // Modal States
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
@@ -61,6 +66,13 @@ export const App: React.FC = () => {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState<ModelReport | null>(null);
 
+  // Invoice States
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [invoiceJobTarget, setInvoiceJobTarget] = useState<ComplianceJob | null>(null);
+  const [isInvoicePreviewOpen, setIsInvoicePreviewOpen] = useState(false);
+  const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
+
   // Request Docs Modal State
   const [isRequestDocsOpen, setIsRequestDocsOpen] = useState(false);
   const [jobForDocRequest, setJobForDocRequest] = useState<ComplianceJob | null>(null);
@@ -72,7 +84,7 @@ export const App: React.FC = () => {
 
   // Delete State
   const [deleteTarget, setDeleteTarget] = useState<{
-    type: 'job' | 'vehicle' | 'workshop' | 'report';
+    type: 'job' | 'vehicle' | 'workshop' | 'report' | 'invoice';
     id: string;
     title: string;
     name: string;
@@ -82,6 +94,7 @@ export const App: React.FC = () => {
   // Load All Data from Google Sheets Master Database & Local Cache
   const loadData = useCallback(async () => {
     // 0. Instantly hydrate state from local cache so page refresh is instantaneous (0ms delay)
+    invoiceService.getAll().then(setInvoices).catch(() => {});
     const cached = googleSheetsService.getCachedMasterData();
     if (cached && (cached.jobs.length > 0 || cached.vehicles.length > 0 || cached.workshops.length > 0 || cached.modelReports.length > 0)) {
       setComplianceJobs(cached.jobs.length > 0 ? cached.jobs : DEFAULT_COMPLIANCE_JOBS);
@@ -157,6 +170,9 @@ export const App: React.FC = () => {
     });
     setIsConnected(true);
     setIsLoading(false);
+
+    // Also load invoices
+    invoiceService.getAll().then(setInvoices).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -183,17 +199,22 @@ export const App: React.FC = () => {
       setIsSheetsPrimary(googleSheetsService.isSheetsPrimary());
       loadData();
     };
+    const handleInvoicesUpdated = () => {
+      invoiceService.getAll().then(setInvoices).catch(() => {});
+    };
 
     window.addEventListener('avv_mate_drive_config_updated', handleConfigChange);
     window.addEventListener('avv_mate_auth_expired', handleAuthExpired);
     window.addEventListener('avv_mate_auth_restored', handleAuthRestored);
     window.addEventListener('avv_mate_db_mode_changed', handleDbModeChange);
+    window.addEventListener('avv_mate_invoices_updated', handleInvoicesUpdated);
 
     return () => {
       window.removeEventListener('avv_mate_drive_config_updated', handleConfigChange);
       window.removeEventListener('avv_mate_auth_expired', handleAuthExpired);
       window.removeEventListener('avv_mate_auth_restored', handleAuthRestored);
       window.removeEventListener('avv_mate_db_mode_changed', handleDbModeChange);
+      window.removeEventListener('avv_mate_invoices_updated', handleInvoicesUpdated);
     };
   }, [loadData]);
 
@@ -280,6 +301,66 @@ export const App: React.FC = () => {
       title: 'Delete Model Report',
       name: `${report.mre_no} • ${report.make} ${report.model}`,
     });
+  };
+
+  // Handlers for Invoices
+  const handleNewInvoice = () => {
+    setSelectedInvoice(null);
+    setInvoiceJobTarget(null);
+    setIsInvoiceModalOpen(true);
+  };
+
+  const handleEditInvoice = (invoice: Invoice) => {
+    setSelectedInvoice(invoice);
+    setInvoiceJobTarget(null);
+    setIsInvoiceModalOpen(true);
+  };
+
+  const handlePreviewInvoice = (invoice: Invoice) => {
+    setPreviewInvoice(invoice);
+    setIsInvoicePreviewOpen(true);
+  };
+
+  const handleDeleteInvoiceClick = (invoice: Invoice) => {
+    setDeleteTarget({
+      type: 'invoice',
+      id: invoice.id,
+      title: 'Delete Invoice',
+      name: `Invoice ${invoice.invoice_no} (${invoice.customer_name})`,
+    });
+  };
+
+  const handleInvoiceStatusChange = async (invoice: Invoice, newStatus: Invoice['status']) => {
+    try {
+      const updated = await invoiceService.update(invoice.id, {
+        status: newStatus,
+        balance_due: newStatus === 'paid' ? 0 : invoice.balance_due,
+        amount_paid: newStatus === 'paid' ? invoice.total_amount : invoice.amount_paid,
+      });
+      const updatedList = invoices.map(i => i.id === updated.id ? updated : i);
+      setInvoices(updatedList);
+      if (previewInvoice?.id === updated.id) {
+        setPreviewInvoice(updated);
+      }
+    } catch (err) {
+      console.error('Failed updating invoice status:', err);
+    }
+  };
+
+  const handleGenerateInvoiceForJob = (job: ComplianceJob) => {
+    setSelectedInvoice(null);
+    setInvoiceJobTarget(job);
+    setIsInvoiceModalOpen(true);
+  };
+
+  const handleInvoiceSaved = async (savedInvoice: Invoice, andPreview = false) => {
+    const list = await invoiceService.getAll();
+    setInvoices(list);
+    setIsInvoiceModalOpen(false);
+    if (andPreview) {
+      setPreviewInvoice(savedInvoice);
+      setIsInvoicePreviewOpen(true);
+    }
   };
 
   // Handlers for Google Sheets Master Database
@@ -611,6 +692,15 @@ export const App: React.FC = () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
+      // If deleting an invoice, handle via invoiceService and return early
+      if (deleteTarget.type === 'invoice') {
+        await invoiceService.delete(deleteTarget.id);
+        const newInvoices = invoices.filter(i => i.id !== deleteTarget.id);
+        setInvoices(newInvoices);
+        setDeleteTarget(null);
+        return;
+      }
+
       // 1. Delete in Supabase if online
       try {
         if (deleteTarget.type === 'job') {
@@ -688,6 +778,7 @@ export const App: React.FC = () => {
           vehicles: vehicles.length,
           workshops: workshops.length,
           reports: modelReports.length,
+          invoices: invoices.length,
         }}
         isDriveConnected={isDriveConnected}
       />
@@ -824,6 +915,7 @@ export const App: React.FC = () => {
               onEditJob={handleEditJob}
               onDeleteJob={handleDeleteJobClick}
               onRequestDocs={handleRequestDocs}
+              onGenerateInvoice={handleGenerateInvoiceForJob}
             />
           </div>
         )}
@@ -857,9 +949,38 @@ export const App: React.FC = () => {
             onDeleteReport={handleDeleteReportClick}
           />
         )}
+
+        {/* Invoices Tab View */}
+        {activeTab === 'invoices' && (
+          <InvoicesView
+            invoices={invoices}
+            onNewInvoice={handleNewInvoice}
+            onEditInvoice={handleEditInvoice}
+            onPreviewInvoice={handlePreviewInvoice}
+            onDeleteInvoice={handleDeleteInvoiceClick}
+            onStatusChange={handleInvoiceStatusChange}
+          />
+        )}
       </main>
 
       {/* Modals */}
+      <InvoiceModal
+        isOpen={isInvoiceModalOpen}
+        onClose={() => setIsInvoiceModalOpen(false)}
+        onSaved={handleInvoiceSaved}
+        invoiceToEdit={selectedInvoice}
+        workshops={workshops}
+        jobs={complianceJobs}
+        initialJob={invoiceJobTarget}
+      />
+
+      <InvoicePreviewModal
+        isOpen={isInvoicePreviewOpen}
+        onClose={() => setIsInvoicePreviewOpen(false)}
+        invoice={previewInvoice}
+        onStatusChange={handleInvoiceStatusChange}
+      />
+
       <ComplianceJobModal
         isOpen={isJobModalOpen}
         onClose={() => setIsJobModalOpen(false)}

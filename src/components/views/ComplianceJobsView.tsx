@@ -11,7 +11,8 @@ import {
   Video, 
   CheckCircle2, 
   MessageSquare,
-  ExternalLink
+  ExternalLink,
+  Receipt
 } from 'lucide-react';
 import type { ComplianceJob } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
@@ -24,6 +25,7 @@ interface ComplianceJobsViewProps {
   onEditJob: (job: ComplianceJob) => void;
   onDeleteJob: (job: ComplianceJob) => void;
   onRequestDocs?: (job: ComplianceJob) => void;
+  onGenerateInvoice?: (job: ComplianceJob) => void;
 }
 
 export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
@@ -32,6 +34,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
   onEditJob,
   onDeleteJob,
   onRequestDocs,
+  onGenerateInvoice,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -384,6 +387,15 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="flex items-center justify-end gap-1">
+                        {onGenerateInvoice && (
+                          <button
+                            onClick={() => onGenerateInvoice(job)}
+                            className="p-1.5 text-teal-700 hover:text-teal-900 hover:bg-teal-50 rounded transition"
+                            title="Generate Model Reports Online Tax Invoice"
+                          >
+                            <Receipt className="w-4 h-4" />
+                          </button>
+                        )}
                         {(job.uploaded_docs_count || 0) < 9 && onRequestDocs && (
                           <button
                             onClick={() => onRequestDocs(job)}
