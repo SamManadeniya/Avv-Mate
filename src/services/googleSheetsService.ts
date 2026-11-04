@@ -45,8 +45,29 @@ class GoogleSheetsService {
 
   /**
    * Persists master database snapshot into localStorage for zero-latency hydration.
+   * Protects against wiping existing non-empty cache with an empty payload.
    */
   public setCachedMasterData(data: MasterSheetTablesData): void {
+    const total =
+      (data.jobs?.length || 0) +
+      (data.vehicles?.length || 0) +
+      (data.workshops?.length || 0) +
+      (data.modelReports?.length || 0);
+
+    // If incoming data is completely empty, never overwrite an existing non-empty cache!
+    if (total === 0) {
+      const existing = this.getCachedMasterData();
+      if (
+        existing &&
+        ((existing.jobs?.length || 0) +
+          (existing.vehicles?.length || 0) +
+          (existing.workshops?.length || 0) +
+          (existing.modelReports?.length || 0)) > 0
+      ) {
+        return;
+      }
+    }
+
     try {
       localStorage.setItem(this.STORAGE_KEY_MASTER_CACHE, JSON.stringify(data));
       localStorage.setItem('avv_mate_master_cache_time', Date.now().toString());
@@ -272,10 +293,27 @@ class GoogleSheetsService {
     workshops: RawWorkshop[],
     modelReports: ModelReport[]
   ): Promise<{ success: boolean; spreadsheetUrl: string; syncedTabs: string[] }> {
-    // 1. Immediately persist snapshot into localStorage so refresh/reload never loses data
-    this.setCachedMasterData({ jobs, vehicles, workshops, modelReports });
+    const totalIncoming =
+      (jobs?.length || 0) +
+      (vehicles?.length || 0) +
+      (workshops?.length || 0) +
+      (modelReports?.length || 0);
 
     const sheet = await this.getMasterSpreadsheet();
+
+    // Prevent wiping: if all 4 arrays are completely empty, abort sync to protect Google Sheet data
+    if (totalIncoming === 0) {
+      console.warn('syncAllDataToMasterSheet skipped: All tables are empty. Existing Google Sheet data preserved.');
+      return {
+        success: false,
+        spreadsheetUrl: sheet.webViewLink,
+        syncedTabs: ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'],
+      };
+    }
+
+    // Immediately persist snapshot into localStorage so refresh/reload never loses data
+    this.setCachedMasterData({ jobs, vehicles, workshops, modelReports });
+
     let token = await googleDriveService.getValidToken();
 
     if (!token || sheet.spreadsheetId.startsWith('demo_')) {
@@ -430,8 +468,29 @@ class GoogleSheetsService {
       modelReports: [],
     };
 
-    // Update persistent cache with freshly fetched live data
-    this.setCachedMasterData(liveData);
+    const liveTotal =
+      (liveData.jobs?.length || 0) +
+      (liveData.vehicles?.length || 0) +
+      (liveData.workshops?.length || 0) +
+      (liveData.modelReports?.length || 0);
+
+    // If Google Sheets returns 0 rows, check if we have a non-empty local cache
+    if (liveTotal === 0 && cachedData) {
+      const cachedTotal =
+        (cachedData.jobs?.length || 0) +
+        (cachedData.vehicles?.length || 0) +
+        (cachedData.workshops?.length || 0) +
+        (cachedData.modelReports?.length || 0);
+      if (cachedTotal > 0) {
+        console.warn('Google Sheets returned 0 records, retaining cached non-empty master data.');
+        return cachedData;
+      }
+    }
+
+    // Update persistent cache only when we have actual live data
+    if (liveTotal > 0) {
+      this.setCachedMasterData(liveData);
+    }
     return liveData;
   }
 

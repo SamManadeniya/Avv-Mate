@@ -20,6 +20,12 @@ import { workshopService } from './services/workshopService';
 import { modelReportService } from './services/modelReportService';
 import { googleDriveService } from './services/googleDriveService';
 import { googleSheetsService } from './services/googleSheetsService';
+import {
+  DEFAULT_COMPLIANCE_JOBS,
+  DEFAULT_VEHICLES,
+  DEFAULT_RAW_WORKSHOPS,
+  DEFAULT_MODEL_REPORTS,
+} from './data/seedData';
 
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport } from './types';
 import { RefreshCw, Database, FileSpreadsheet, AlertTriangle, ExternalLink } from 'lucide-react';
@@ -93,16 +99,23 @@ export const App: React.FC = () => {
     if (googleSheetsService.isSheetsPrimary() && googleDriveService.isConfigured()) {
       try {
         const sheetData = await googleSheetsService.readAllFromMasterSheet();
-        if (sheetData) {
+        const sheetTotal =
+          (sheetData?.jobs?.length || 0) +
+          (sheetData?.vehicles?.length || 0) +
+          (sheetData?.workshops?.length || 0) +
+          (sheetData?.modelReports?.length || 0);
+
+        if (sheetTotal > 0) {
           setComplianceJobs(sheetData.jobs || []);
           setVehicles(sheetData.vehicles || []);
           setWorkshops(sheetData.workshops || []);
           setModelReports(sheetData.modelReports || []);
           setIsConnected(true);
           setDbSetupNeeded(false);
+          setIsLoading(false);
+          return;
         }
-        setIsLoading(false);
-        return;
+        console.warn('Google Sheets returned 0 records. Checking Supabase or Seed Fallback...');
       } catch (sheetErr) {
         console.warn('Failed reading from Google Sheets Master DB, retaining cached data:', sheetErr);
         if (cached && (cached.jobs.length > 0 || cached.vehicles.length > 0 || cached.workshops.length > 0 || cached.modelReports.length > 0)) {
@@ -129,29 +142,29 @@ export const App: React.FC = () => {
       let currentWorkshops: RawWorkshop[] = [];
       let currentReports: ModelReport[] = [];
 
-      if (jobsData.status === 'fulfilled') {
+      if (jobsData.status === 'fulfilled' && jobsData.value.length > 0) {
         currentJobs = jobsData.value;
         setComplianceJobs(currentJobs);
         hasSuccess = true;
-      } else if (jobsData.reason?.message?.includes('Could not find the table')) {
+      } else if (jobsData.status === 'rejected' && jobsData.reason?.message?.includes('Could not find the table')) {
         hasTableMissingError = true;
       }
 
-      if (vehiclesData.status === 'fulfilled') {
+      if (vehiclesData.status === 'fulfilled' && vehiclesData.value.length > 0) {
         currentVehicles = vehiclesData.value;
         setVehicles(currentVehicles);
         hasSuccess = true;
-      } else if (vehiclesData.reason?.message?.includes('Could not find the table')) {
+      } else if (vehiclesData.status === 'rejected' && vehiclesData.reason?.message?.includes('Could not find the table')) {
         hasTableMissingError = true;
       }
 
-      if (workshopsData.status === 'fulfilled') {
+      if (workshopsData.status === 'fulfilled' && workshopsData.value.length > 0) {
         currentWorkshops = workshopsData.value;
         setWorkshops(currentWorkshops);
         hasSuccess = true;
       }
 
-      if (reportsData.status === 'fulfilled') {
+      if (reportsData.status === 'fulfilled' && reportsData.value.length > 0) {
         currentReports = reportsData.value;
         setModelReports(currentReports);
         hasSuccess = true;
@@ -177,6 +190,47 @@ export const App: React.FC = () => {
             return;
           }
         } catch (_) {}
+      }
+
+      // 3. Fallback: If neither Supabase nor Google Sheets has records, hydrate DEFAULT_SEED_DATA!
+      const totalLoaded = currentJobs.length + currentVehicles.length + currentWorkshops.length + currentReports.length;
+      if (totalLoaded === 0) {
+        const cached = googleSheetsService.getCachedMasterData();
+        const cachedTotal =
+          (cached?.jobs?.length || 0) +
+          (cached?.vehicles?.length || 0) +
+          (cached?.workshops?.length || 0) +
+          (cached?.modelReports?.length || 0);
+
+        if (cachedTotal > 0 && cached) {
+          setComplianceJobs(cached.jobs);
+          setVehicles(cached.vehicles);
+          setWorkshops(cached.workshops);
+          setModelReports(cached.modelReports);
+        } else {
+          console.info('Auto-populating database with default seed records (9 Workshops, 25 Reports, Vehicles, Jobs)...');
+          setComplianceJobs(DEFAULT_COMPLIANCE_JOBS);
+          setVehicles(DEFAULT_VEHICLES);
+          setWorkshops(DEFAULT_RAW_WORKSHOPS);
+          setModelReports(DEFAULT_MODEL_REPORTS);
+          googleSheetsService.setCachedMasterData({
+            jobs: DEFAULT_COMPLIANCE_JOBS,
+            vehicles: DEFAULT_VEHICLES,
+            workshops: DEFAULT_RAW_WORKSHOPS,
+            modelReports: DEFAULT_MODEL_REPORTS,
+          });
+
+          // Automatically sync seed data into Google Sheets in the background so the Master Sheet is repopulated immediately!
+          if (googleDriveService.isConfigured()) {
+            googleSheetsService.syncAllDataToMasterSheet(
+              DEFAULT_COMPLIANCE_JOBS,
+              DEFAULT_VEHICLES,
+              DEFAULT_RAW_WORKSHOPS,
+              DEFAULT_MODEL_REPORTS
+            ).catch(e => console.warn('Auto-seed sync notice:', e));
+          }
+        }
+        hasSuccess = true;
       }
 
       // If Supabase loaded and Google Drive is connected, initialize master sheet URL in background
@@ -352,16 +406,19 @@ export const App: React.FC = () => {
         await googleDriveService.requestOAuthToken();
       }
 
-      // Auto-sync latest data to Master Sheet before opening
-      try {
-        await googleSheetsService.syncAllDataToMasterSheet(
-          complianceJobs,
-          vehicles,
-          workshops,
-          modelReports
-        );
-      } catch (syncErr) {
-        console.warn('Pre-open sync notice:', syncErr);
+      // Auto-sync latest data to Master Sheet before opening ONLY if records exist
+      const totalCurrent = complianceJobs.length + vehicles.length + workshops.length + modelReports.length;
+      if (totalCurrent > 0) {
+        try {
+          await googleSheetsService.syncAllDataToMasterSheet(
+            complianceJobs,
+            vehicles,
+            workshops,
+            modelReports
+          );
+        } catch (syncErr) {
+          console.warn('Pre-open sync notice:', syncErr);
+        }
       }
 
       const info = await googleSheetsService.getMasterSpreadsheet(true);
@@ -399,16 +456,33 @@ export const App: React.FC = () => {
 
   const handleSyncAllToSheets = async () => {
     setIsSyncingSheets(true);
-    setSheetsFeedback('Syncing all 4 tables into Master Google Sheet...');
+    setSheetsFeedback('Syncing all 5 tabs into Master Google Sheet...');
     try {
+      let jobsToSync = complianceJobs;
+      let vehiclesToSync = vehicles;
+      let workshopsToSync = workshops;
+      let reportsToSync = modelReports;
+
+      const totalCurrent = jobsToSync.length + vehiclesToSync.length + workshopsToSync.length + reportsToSync.length;
+      if (totalCurrent === 0) {
+        jobsToSync = DEFAULT_COMPLIANCE_JOBS;
+        vehiclesToSync = DEFAULT_VEHICLES;
+        workshopsToSync = DEFAULT_RAW_WORKSHOPS;
+        reportsToSync = DEFAULT_MODEL_REPORTS;
+        setComplianceJobs(jobsToSync);
+        setVehicles(vehiclesToSync);
+        setWorkshops(workshopsToSync);
+        setModelReports(reportsToSync);
+      }
+
       const result = await googleSheetsService.syncAllDataToMasterSheet(
-        complianceJobs,
-        vehicles,
-        workshops,
-        modelReports
+        jobsToSync,
+        vehiclesToSync,
+        workshopsToSync,
+        reportsToSync
       );
       setMasterSheetUrl(result.spreadsheetUrl);
-      setSheetsFeedback('✓ Synced all 4 tabs (Compliance_Jobs, Vehicles, RAW_Workshops, Model_Reports) in AVV Mate Master Database!');
+      setSheetsFeedback('✓ Synced all 5 tabs (Compliance_Jobs, Vehicles, RAW_Workshops, Model_Reports, SVC) in AVV Mate Master Database!');
       setSheetsApiDisabledUrl(null);
       setTimeout(() => setSheetsFeedback(null), 6000);
     } catch (err: any) {
@@ -430,6 +504,38 @@ export const App: React.FC = () => {
       }
     } finally {
       setIsSyncingSheets(false);
+    }
+  };
+
+  const handleRestoreSeedData = async () => {
+    if (!window.confirm('Restore initial database records (9 RAW Workshops, 25 Model Reports, Vehicles, and Compliance Jobs) into both AVV Mate and Google Sheets?')) {
+      return;
+    }
+    setIsSyncingSheets(true);
+    setSheetsFeedback('Restoring initial master database records...');
+    setComplianceJobs(DEFAULT_COMPLIANCE_JOBS);
+    setVehicles(DEFAULT_VEHICLES);
+    setWorkshops(DEFAULT_RAW_WORKSHOPS);
+    setModelReports(DEFAULT_MODEL_REPORTS);
+    googleSheetsService.setCachedMasterData({
+      jobs: DEFAULT_COMPLIANCE_JOBS,
+      vehicles: DEFAULT_VEHICLES,
+      workshops: DEFAULT_RAW_WORKSHOPS,
+      modelReports: DEFAULT_MODEL_REPORTS,
+    });
+    try {
+      await googleSheetsService.syncAllDataToMasterSheet(
+        DEFAULT_COMPLIANCE_JOBS,
+        DEFAULT_VEHICLES,
+        DEFAULT_RAW_WORKSHOPS,
+        DEFAULT_MODEL_REPORTS
+      );
+      setSheetsFeedback('✓ Successfully restored all master records into Google Sheets!');
+    } catch (e: any) {
+      setSheetsFeedback(`Data restored locally. Sync note: ${e.message}`);
+    } finally {
+      setIsSyncingSheets(false);
+      setTimeout(() => setSheetsFeedback(null), 5000);
     }
   };
 
@@ -652,6 +758,7 @@ export const App: React.FC = () => {
         onMasterSheetClick={handleMasterSheetOpen}
         masterSheetUrl={masterSheetUrl}
         onSyncAllToSheets={handleSyncAllToSheets}
+        onRestoreSeedData={handleRestoreSeedData}
         isSyncingSheets={isSyncingSheets}
         isSheetsPrimary={isSheetsPrimary}
         counts={{

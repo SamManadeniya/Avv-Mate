@@ -1135,13 +1135,36 @@ export const handler = async (event: any) => {
       // Ensure all 5 tabs exist before writing values into them
       await ensureMasterSheetTabs(token, spreadsheetId);
 
-      // Clear data rows (row 2 onwards) so deleted records or reduced rows don't linger
+      // CRITICAL DATA PRESERVATION GUARD:
+      // Count incoming records across all 4 tables. If all are 0, REFUSE to clear/wipe the spreadsheet!
+      const incomingJobsCount = Array.isArray(tables.jobs) ? tables.jobs.length : 0;
+      const incomingVehiclesCount = Array.isArray(tables.vehicles) ? tables.vehicles.length : 0;
+      const incomingWorkshopsCount = Array.isArray(tables.workshops) ? tables.workshops.length : 0;
+      const incomingReportsCount = Array.isArray(tables.modelReports) ? tables.modelReports.length : 0;
+      const totalIncoming = incomingJobsCount + incomingVehiclesCount + incomingWorkshopsCount + incomingReportsCount;
+
+      if (totalIncoming === 0 && !payload.forceClear) {
+        console.warn('[drive-sync] Prevented spreadsheet wipe: all incoming tables are empty.');
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            skipped: true,
+            message: 'Spreadsheet sync skipped because incoming tables were empty. Existing data preserved.',
+            spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+            syncedTabs: ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'],
+          }),
+        };
+      }
+
+      // Clear data rows (row 2 onwards) ONLY for tables that have incoming records, or if forceClear is set
       const clearRanges: string[] = [];
-      if (Array.isArray(tables.jobs)) clearRanges.push('Compliance_Jobs!A2:AE');
-      if (Array.isArray(tables.vehicles)) clearRanges.push('Vehicles!A2:J');
-      if (Array.isArray(tables.workshops)) clearRanges.push('RAW_Workshops!A2:G');
-      if (Array.isArray(tables.modelReports)) clearRanges.push('Model_Reports!A2:M');
-      clearRanges.push('SVC!A2:AE');
+      if (incomingJobsCount > 0 || payload.forceClear) clearRanges.push('Compliance_Jobs!A2:AE');
+      if (incomingVehiclesCount > 0 || payload.forceClear) clearRanges.push('Vehicles!A2:J');
+      if (incomingWorkshopsCount > 0 || payload.forceClear) clearRanges.push('RAW_Workshops!A2:G');
+      if (incomingReportsCount > 0 || payload.forceClear) clearRanges.push('Model_Reports!A2:M');
+      if (incomingJobsCount > 0 || payload.forceClear) clearRanges.push('SVC!A2:AE');
 
       if (clearRanges.length > 0) {
         try {

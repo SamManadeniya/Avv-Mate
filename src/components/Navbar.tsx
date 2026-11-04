@@ -7,7 +7,8 @@ import {
   Plus, 
   HardDrive,
   FileSpreadsheet,
-  RefreshCw
+  RefreshCw,
+  Database
 } from 'lucide-react';
 
 export type ActiveTab = 'jobs' | 'vehicles' | 'workshops' | 'reports';
@@ -21,6 +22,7 @@ interface NavbarProps {
   masterSheetUrl?: string;
   onSyncAllToSheets?: () => void;
   isSyncingSheets?: boolean;
+  onRestoreSeedData?: () => void;
   counts: {
     jobs: number;
     vehicles: number;
@@ -40,6 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   masterSheetUrl,
   onSyncAllToSheets,
   isSyncingSheets = false,
+  onRestoreSeedData,
   counts,
   isDriveConnected = false,
   isSheetsPrimary = false,
@@ -173,17 +176,31 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* Sync All 4 Tables to Master Sheet */}
+            {/* Sync All Tables to Master Sheet */}
             {isDriveConnected && onSyncAllToSheets && (
               <button
                 type="button"
                 onClick={onSyncAllToSheets}
                 disabled={isSyncingSheets}
-                className="hidden lg:flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 transition disabled:opacity-50 cursor-pointer"
-                title="Sync all 4 tables (Compliance_Jobs, Vehicles, RAW_Workshops, Model_Reports) to Master Google Sheet"
+                className="hidden lg:flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 transition disabled:opacity-50 cursor-pointer"
+                title="Sync all tables (Compliance_Jobs, Vehicles, RAW_Workshops, Model_Reports, SVC) to Master Google Sheet"
               >
                 <RefreshCw className={`w-3 h-3 text-sky-600 ${isSyncingSheets ? 'animate-spin' : ''}`} />
                 <span>{isSyncingSheets ? 'Syncing...' : 'Sync Sheet'}</span>
+              </button>
+            )}
+
+            {/* Restore Initial Seed Data if Database is completely empty */}
+            {onRestoreSeedData && (counts.jobs + counts.vehicles + counts.workshops + counts.reports === 0) && (
+              <button
+                type="button"
+                onClick={onRestoreSeedData}
+                disabled={isSyncingSheets}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer"
+                title="Restore default master records (9 Workshops, 25 Model Reports, Vehicles, Jobs)"
+              >
+                <Database className="w-3 h-3" />
+                <span>Restore Data</span>
               </button>
             )}
 
