@@ -46,14 +46,15 @@ interface RequestBody {
 
 const isComplianceDocServer = (name: string, docType?: string): boolean => {
   const dt = (docType || '').toUpperCase().trim();
-  const complianceTypes = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RAW DECL'];
+  const complianceTypes = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RAW DECL', 'RECALL'];
   if (dt && complianceTypes.includes(dt)) {
     return true;
   }
   const n = (name || '').toLowerCase().trim();
   if (
-    /^(cre|ec|cin|wi|dc|vi|raw_decla|raw_decl|rawdecl)[_.\-\s]/i.test(n) ||
-    /^(cre|ec|cin|wi|dc|vi)\.[a-z0-9]+$/i.test(n) ||
+    /^(cre|ec|cin|wi|dc|vi|raw_decla|raw_decl|rawdecl|recall)[_.\-\s]/i.test(n) ||
+    /^(cre|ec|cin|wi|dc|vi|recall)\.[a-z0-9]+$/i.test(n) ||
+    n.includes('recall') ||
     n.includes('concessional') ||
     n.includes('export_cert') ||
     n.includes('export cert') ||
@@ -323,7 +324,7 @@ const ensureMasterSheetTabs = async (token: string, spreadsheetId: string): Prom
     const existingSheets = (metaData.sheets || []) as any[];
     const existingTitles = existingSheets.map(s => s.properties?.title);
 
-    const requiredTabs = ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports'];
+    const requiredTabs = ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'];
     const missing = requiredTabs.filter(t => !existingTitles.includes(t));
 
     if (missing.length > 0) {
@@ -938,6 +939,7 @@ export const handler = async (event: any) => {
         { properties: { title: 'Vehicles', gridProperties: { frozenRowCount: 1 } } },
         { properties: { title: 'RAW_Workshops', gridProperties: { frozenRowCount: 1 } } },
         { properties: { title: 'Model_Reports', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'SVC', gridProperties: { frozenRowCount: 1 } } },
       ];
 
       try {
@@ -1044,13 +1046,13 @@ export const handler = async (event: any) => {
         valueInputOption: 'USER_ENTERED',
         data: [
           {
-            range: 'Compliance_Jobs!A1:AA1',
+            range: 'Compliance_Jobs!A1:AE1',
             values: [
               [
                 'Folder #', 'VIN', 'RAW ID', 'RAW Workshop Name', 'MRE #',
                 'Make', 'Model', 'Build Date', 'VIA #', 'Request Received',
-                'AVV Verification Date', 'RAV Date of Entry', 'Status',
-                'CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW DECLA', 'PHOTOS',
+                'AVV Verification Date', 'AVV Submit Date', 'RAV Date of Entry', 'Approval Payment Date', 'Recall Check Date',
+                'Status', 'CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW DECLA', 'RECALL', 'PHOTOS',
                 'Docs Uploaded', 'Google Drive Folder', 'Inspection Videos',
                 'Error Note', 'Created At', 'Attachments JSON'
               ]
@@ -1075,12 +1077,25 @@ export const handler = async (event: any) => {
             ]
           },
           {
-            range: 'Model_Reports!A1:L1',
+            range: 'Model_Reports!A1:M1',
             values: [
               [
-                'MRE #', 'Make', 'Model', 'SEV #', 'Category (VCC)',
+                'MRE #', 'Unique ID', 'Make', 'Model', 'SEV #', 'Category (VCC)',
                 'Build From', 'Build To', 'Tare (kg)', 'Power (kW)', 'Seats',
                 'Author', 'Created At'
+              ]
+            ]
+          },
+          {
+            range: 'SVC!A1:AE1',
+            values: [
+              [
+                'Customer Request Recieved', 'Folder #', 'VIN #', 'Build Date', 'Make as per MRE',
+                'Model as per MRE', 'MRE No', 'Build date range', 'SEV No', 'Build date range (SEV)',
+                'VIA#', 'EXP CERT', 'CIN', 'WI', 'DC', 'VI', 'PHOTOS', 'RAW DECLA',
+                'Model Report Author', 'Model Report Unique ID', 'CMPL RAW', 'Recall Check',
+                'AVV Verification Date', 'AVV Submit Date', 'RAV Date of Entry', 'Approval Payment Date',
+                'VCC', 'Approval Holder', 'Tare', 'Power (kW)', 'Seats'
               ]
             ]
           }
@@ -1117,15 +1132,16 @@ export const handler = async (event: any) => {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'spreadsheetId is required' }) };
       }
 
-      // Ensure all 4 tabs exist before writing values into them
+      // Ensure all 5 tabs exist before writing values into them
       await ensureMasterSheetTabs(token, spreadsheetId);
 
       // Clear data rows (row 2 onwards) so deleted records or reduced rows don't linger
       const clearRanges: string[] = [];
-      if (Array.isArray(tables.jobs)) clearRanges.push('Compliance_Jobs!A2:AA');
+      if (Array.isArray(tables.jobs)) clearRanges.push('Compliance_Jobs!A2:AE');
       if (Array.isArray(tables.vehicles)) clearRanges.push('Vehicles!A2:J');
       if (Array.isArray(tables.workshops)) clearRanges.push('RAW_Workshops!A2:G');
-      if (Array.isArray(tables.modelReports)) clearRanges.push('Model_Reports!A2:L');
+      if (Array.isArray(tables.modelReports)) clearRanges.push('Model_Reports!A2:M');
+      clearRanges.push('SVC!A2:AE');
 
       if (clearRanges.length > 0) {
         try {
@@ -1139,6 +1155,26 @@ export const handler = async (event: any) => {
         }
       }
 
+      // Pre-fetch vehicle folders in Drive to build direct hyperlinks
+      const folderMap = new Map<string, { id: string; webViewLink: string }>();
+      const rootParent = cleanDriveFolderId(payload.parentFolderId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5');
+      try {
+        const fRes = await fetch(`https://www.googleapis.com/drive/v3/files?q='${rootParent}'+in+parents+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id,name,webViewLink)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (fRes.ok) {
+          const fData = await fRes.json();
+          (fData.files || []).forEach((f: any) => {
+            if (f.name) {
+              folderMap.set(f.name.toUpperCase().trim(), {
+                id: f.id,
+                webViewLink: f.webViewLink || `https://drive.google.com/drive/folders/${f.id}`
+              });
+            }
+          });
+        }
+      } catch (_) {}
+
       const updateData: Array<{ range: string; values: any[][] }> = [];
 
       // 1. Compliance_Jobs
@@ -1147,8 +1183,8 @@ export const handler = async (event: any) => {
           [
             'Folder #', 'VIN', 'RAW ID', 'RAW Workshop Name', 'MRE #',
             'Make', 'Model', 'Build Date', 'VIA #', 'Request Received',
-            'AVV Verification Date', 'RAV Date of Entry', 'Status',
-            'CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW DECLA', 'PHOTOS',
+            'AVV Verification Date', 'AVV Submit Date', 'RAV Date of Entry', 'Approval Payment Date', 'Recall Check Date',
+            'Status', 'CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW DECLA', 'RECALL', 'PHOTOS',
             'Docs Uploaded', 'Google Drive Folder', 'Inspection Videos',
             'Error Note', 'Created At', 'Attachments JSON'
           ]
@@ -1156,7 +1192,11 @@ export const handler = async (event: any) => {
 
         tables.jobs.forEach((j: any, idx: number) => {
           const rowNum = idx + 2;
-          const folderUrl = j.folder_url || (j.folder_no ? `https://drive.google.com/drive/search?q=${j.folder_no}` : '');
+          const cleanFolder = (j.folder_no || '').toUpperCase().trim();
+          const driveFolderInfo = folderMap.get(cleanFolder);
+          const folderUrl = (j.folder_url && j.folder_url.startsWith('https://drive.google.com/drive/folders/'))
+            ? j.folder_url
+            : (driveFolderInfo ? driveFolderInfo.webViewLink : (cleanFolder ? `https://drive.google.com/drive/folders/${rootParent}` : ''));
           const driveCell = folderUrl ? `=HYPERLINK("${folderUrl}", "${j.folder_no}")` : (j.folder_no || '');
           const videosCell = j.videos_url ? `=HYPERLINK("${j.videos_url}", "Watch Videos")` : '';
           const workshopFormula = `=IFERROR(XLOOKUP(C${rowNum}, RAW_Workshops!A:A, RAW_Workshops!B:B), "${(j.raw_workshop_name || '').replace(/"/g, '""')}")`;
@@ -1164,8 +1204,12 @@ export const handler = async (event: any) => {
           const att = j.attachments || {};
           const formatDocCell = (docType: string) => {
             const item = att[docType];
-            if (!item || !item.file_url) return '';
-            return `=HYPERLINK("${item.file_url}", "${(item.file_name || docType).replace(/"/g, '""')}")`;
+            if (!item) return '';
+            const docUrl = item.file_url && item.file_url.startsWith('https://drive.google.com')
+              ? item.file_url
+              : (folderUrl || '');
+            if (!docUrl) return (item.file_name || docType).replace(/"/g, '""');
+            return `=HYPERLINK("${docUrl}", "${(item.file_name || docType).replace(/"/g, '""')}")`;
           };
 
           const creCell = formatDocCell('CRE');
@@ -1175,12 +1219,16 @@ export const handler = async (event: any) => {
           const dcCell = formatDocCell('DC');
           const viCell = formatDocCell('VI');
           const rawDeclaCell = formatDocCell('RAW_DECLA');
-          const photosCell = att['PHOTOS']?.file_url
-            ? `=HYPERLINK("${att['PHOTOS'].file_url}", "${(att['PHOTOS'].file_name || 'Photos').replace(/"/g, '""')}")`
+          const recallCell = formatDocCell('RECALL');
+          const photosUrl = att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com')
+            ? att['PHOTOS'].file_url
+            : (folderUrl || '');
+          const photosCell = photosUrl
+            ? `=HYPERLINK("${photosUrl}", "${(att['PHOTOS']?.file_name || 'Photos').replace(/"/g, '""')}")`
             : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
 
-          // Count valid attached documents
-          const docKeys = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'PHOTOS'];
+          // Count valid attached documents (8 docs + PHOTOS = 9 total)
+          const docKeys = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RECALL', 'PHOTOS'];
           let attachedCount = 0;
           docKeys.forEach(k => {
             if (att[k]?.file_url) attachedCount++;
@@ -1189,10 +1237,11 @@ export const handler = async (event: any) => {
             attachedCount = j.uploaded_docs_count;
           }
 
-          const docsSummary = `${attachedCount}/8 ${attachedCount >= 7 ? 'Complete' : 'Pending'}`;
+          const docsSummary = `${attachedCount}/9 ${attachedCount >= 8 ? 'Complete' : 'Pending'}`;
           const attachmentsPayload = {
             ...att,
             _videos_url: j.videos_url || null,
+            _folder_url: folderUrl || null,
           };
           const attachmentsJson = JSON.stringify(attachmentsPayload);
 
@@ -1208,7 +1257,10 @@ export const handler = async (event: any) => {
             j.via_no || '',
             j.request_received || '',
             j.avv_verification_date || '',
+            j.avv_submit_date || '',
             j.rav_date_of_entry || '',
+            j.approval_date || '',
+            j.recall_check_date || '',
             j.status || 'in_progress',
             creCell,
             ecCell,
@@ -1217,6 +1269,7 @@ export const handler = async (event: any) => {
             dcCell,
             viCell,
             rawDeclaCell,
+            recallCell,
             photosCell,
             docsSummary,
             driveCell,
@@ -1227,7 +1280,7 @@ export const handler = async (event: any) => {
           ]);
         });
 
-        updateData.push({ range: 'Compliance_Jobs!A1:AA', values: jobRows });
+        updateData.push({ range: 'Compliance_Jobs!A1:AE', values: jobRows });
       }
 
       // 2. Vehicles
@@ -1289,7 +1342,7 @@ export const handler = async (event: any) => {
       if (Array.isArray(tables.modelReports)) {
         const reportRows: any[][] = [
           [
-            'MRE #', 'Make', 'Model', 'SEV #', 'Category (VCC)',
+            'MRE #', 'Unique ID', 'Make', 'Model', 'SEV #', 'Category (VCC)',
             'Build From', 'Build To', 'Tare (kg)', 'Power (kW)', 'Seats',
             'Author', 'Created At'
           ]
@@ -1298,6 +1351,7 @@ export const handler = async (event: any) => {
         tables.modelReports.forEach((r: any) => {
           reportRows.push([
             r.mre_no || '',
+            r.unique_id || '',
             r.make || '',
             r.model || '',
             r.sev_no || '',
@@ -1312,7 +1366,103 @@ export const handler = async (event: any) => {
           ]);
         });
 
-        updateData.push({ range: 'Model_Reports!A1:L', values: reportRows });
+        updateData.push({ range: 'Model_Reports!A1:M', values: reportRows });
+      }
+
+      // 5. SVC Tab (Consolidated view combining all 4 tables into requested 31 columns)
+      if (Array.isArray(tables.jobs)) {
+        const vehiclesMap = new Map<string, any>((tables.vehicles || []).map((v: any) => [(v.vin || '').toUpperCase().trim(), v]));
+        const workshopsMap = new Map<string, any>((tables.workshops || []).map((w: any) => [(w.raw_id || '').toUpperCase().trim(), w]));
+        const reportsMap = new Map<string, any>((tables.modelReports || []).map((m: any) => [(m.mre_no || '').toUpperCase().trim(), m]));
+
+        const svcRows: any[][] = [
+          [
+            'Customer Request Recieved', 'Folder #', 'VIN #', 'Build Date', 'Make as per MRE',
+            'Model as per MRE', 'MRE No', 'Build date range', 'SEV No', 'Build date range (SEV)',
+            'VIA#', 'EXP CERT', 'CIN', 'WI', 'DC', 'VI', 'PHOTOS', 'RAW DECLA',
+            'Model Report Author', 'Model Report Unique ID', 'CMPL RAW', 'Recall Check',
+            'AVV Verification Date', 'AVV Submit Date', 'RAV Date of Entry', 'Approval Payment Date',
+            'VCC', 'Approval Holder', 'Tare', 'Power (kW)', 'Seats'
+          ]
+        ];
+
+        tables.jobs.forEach((j: any) => {
+          const cleanFolder = (j.folder_no || '').toUpperCase().trim();
+          const cleanVin = (j.vin || '').toUpperCase().trim();
+          const cleanRawId = (j.raw_id || '').toUpperCase().trim();
+          const cleanMreNo = (j.mre_no || '').toUpperCase().trim();
+
+          const v = vehiclesMap.get(cleanVin) || {};
+          const w = workshopsMap.get(cleanRawId) || {};
+          const m = reportsMap.get(cleanMreNo) || {};
+
+          const driveFolderInfo = folderMap.get(cleanFolder);
+          const folderUrl = (j.folder_url && j.folder_url.startsWith('https://drive.google.com/drive/folders/'))
+            ? j.folder_url
+            : (driveFolderInfo ? driveFolderInfo.webViewLink : (cleanFolder ? `https://drive.google.com/drive/folders/${rootParent}` : ''));
+          const folderCell = folderUrl ? `=HYPERLINK("${folderUrl}", "${j.folder_no}")` : (j.folder_no || '');
+
+          const att = j.attachments || {};
+          const formatDocCell = (docType: string) => {
+            const item = att[docType];
+            if (!item) return '';
+            const docUrl = item.file_url && item.file_url.startsWith('https://drive.google.com')
+              ? item.file_url
+              : (folderUrl || '');
+            if (!docUrl) return (item.file_name || docType).replace(/"/g, '""');
+            return `=HYPERLINK("${docUrl}", "${(item.file_name || docType).replace(/"/g, '""')}")`;
+          };
+
+          const photosUrl = att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com')
+            ? att['PHOTOS'].file_url
+            : (folderUrl || '');
+          const photosCell = photosUrl
+            ? `=HYPERLINK("${photosUrl}", "${(att['PHOTOS']?.file_name || 'Photos').replace(/"/g, '""')}")`
+            : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
+
+          const buildDateRange = (m.build_from || m.build_to)
+            ? `${m.build_from || ''}${m.build_to ? ' to ' + m.build_to : ''}`
+            : '';
+          const sevBuildRange = (m.sev_build_from || m.sev_build_to)
+            ? `${m.sev_build_from || ''}${m.sev_build_to ? ' to ' + m.sev_build_to : ''}`
+            : buildDateRange;
+
+          svcRows.push([
+            j.request_received || '',
+            folderCell,
+            j.vin || '',
+            v.build_date || j.build_date || '',
+            m.make || j.make || '',
+            m.model || j.model || '',
+            j.mre_no || '',
+            buildDateRange,
+            m.sev_no || '',
+            sevBuildRange,
+            v.via_no || j.via_no || '',
+            formatDocCell('EC'),
+            formatDocCell('CIN'),
+            formatDocCell('WI'),
+            formatDocCell('DC'),
+            formatDocCell('VI'),
+            photosCell,
+            formatDocCell('RAW_DECLA'),
+            m.author || '',
+            m.unique_id || '',
+            w.name || j.raw_workshop_name || j.raw_id || '',
+            formatDocCell('RECALL'),
+            j.avv_verification_date || '',
+            j.avv_submit_date || '',
+            j.rav_date_of_entry || '',
+            j.approval_date || '',
+            m.vcc || '',
+            m.author || w.name || '',
+            m.tare_kg != null ? m.tare_kg : '',
+            m.power_kw != null ? m.power_kw : '',
+            m.seats != null ? m.seats : '',
+          ]);
+        });
+
+        updateData.push({ range: 'SVC!A1:AE', values: svcRows });
       }
 
       let refreshedTokenToReturn: string | null = null;
@@ -1409,7 +1559,7 @@ export const handler = async (event: any) => {
       }
 
       let refreshedTokenToReturn: string | null = null;
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:AA&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:L`;
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:AE&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:M&ranges=SVC!A1:AE`;
       let readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
 
       // If 401 UNAUTHENTICATED, attempt server-side token refresh via refreshToken
@@ -1484,20 +1634,25 @@ export const handler = async (event: any) => {
 
       // Range 3: Model_Reports (parsed second for cross-referencing)
       const reportsRaw = ranges[3]?.values || [];
-      const modelReports = reportsRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[]) => ({
-        mre_no: String(r[0]).trim(),
-        make: String(r[1] || '').trim(),
-        model: String(r[2] || '').trim(),
-        sev_no: r[3] || null,
-        vcc: r[4] || null,
-        build_from: r[5] || null,
-        build_to: r[6] || null,
-        tare_kg: r[7] ? parseFloat(r[7]) : null,
-        power_kw: r[8] ? parseFloat(r[8]) : null,
-        seats: r[9] ? parseInt(r[9], 10) : null,
-        author: r[10] || null,
-        created_at: r[11] || new Date().toISOString(),
-      }));
+      const hasUniqueIdCol = reportsRaw[0] && String(reportsRaw[0][1] || '').toLowerCase().includes('unique');
+      const modelReports = reportsRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[]) => {
+        const offset = hasUniqueIdCol ? 1 : 0;
+        return {
+          mre_no: String(r[0]).trim(),
+          unique_id: hasUniqueIdCol ? (r[1] || null) : null,
+          make: String(r[1 + offset] || '').trim(),
+          model: String(r[2 + offset] || '').trim(),
+          sev_no: r[3 + offset] || null,
+          vcc: r[4 + offset] || null,
+          build_from: r[5 + offset] || null,
+          build_to: r[6 + offset] || null,
+          tare_kg: r[7 + offset] ? parseFloat(r[7 + offset]) : null,
+          power_kw: r[8 + offset] ? parseFloat(r[8 + offset]) : null,
+          seats: r[9 + offset] ? parseInt(r[9 + offset], 10) : null,
+          author: r[10 + offset] || null,
+          created_at: r[11 + offset] || new Date().toISOString(),
+        };
+      });
       const reportMap = new Map(modelReports.map(m => [m.mre_no.toUpperCase(), m]));
 
       // Range 1: Vehicles
@@ -1533,6 +1688,9 @@ export const handler = async (event: any) => {
 
       // Range 0: Compliance_Jobs (with full attachments reconstruction and formula resolution)
       const jobsRaw = ranges[0]?.values || [];
+      const headerRow = (jobsRaw[0] || []).map((h: any) => String(h).trim().toLowerCase());
+      const hasSubmitDate = headerRow.some((h: string) => h.includes('submit'));
+
       const jobs = jobsRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[], i: number) => {
         const folderNo = String(r[0]).trim();
         const vin = String(r[1] || '').trim();
@@ -1549,25 +1707,59 @@ export const handler = async (event: any) => {
         const makeVal = r[5] ? String(r[5]).trim() : '';
         const modelVal = r[6] ? String(r[6]).trim() : '';
 
-        let videosUrl = (r[23] && r[23].includes('http')) ? r[23] : ((r[15] && r[15].includes('http')) ? r[15] : null);
+        // Dates & Status
+        const requestReceived = r[9] || new Date().toISOString().slice(0, 10);
+        const avvVerificationDate = r[10] || null;
+        let avvSubmitDate: string | null = null;
+        let ravDateOfEntry = r[11] || null;
+        let approvalDate: string | null = null;
+        let recallCheckDate: string | null = null;
+        let status = 'in_progress';
+        let driveCell = '';
+        let videosUrl: string | null = null;
+        let errorNote: string | null = null;
+        let createdAt = new Date().toISOString();
+        let jsonStr = '';
+
+        if (hasSubmitDate) {
+          avvSubmitDate = r[11] || null;
+          ravDateOfEntry = r[12] || null;
+          approvalDate = r[13] || null;
+          recallCheckDate = r[14] || null;
+          status = (['in_progress', 'verified', 'rav_entered', 'errored'].includes(r[15]) ? r[15] : 'in_progress');
+          driveCell = r[26] || '';
+          videosUrl = (r[27] && String(r[27]).includes('http')) ? r[27] : null;
+          errorNote = r[28] || null;
+          createdAt = r[29] || new Date().toISOString();
+          jsonStr = r[30] || '';
+        } else {
+          status = (['in_progress', 'verified', 'rav_entered', 'errored'].includes(r[12]) ? r[12] : 'in_progress');
+          driveCell = r[22] || '';
+          videosUrl = (r[23] && String(r[23]).includes('http')) ? r[23] : ((r[15] && String(r[15]).includes('http')) ? r[15] : null);
+          errorNote = r[24] || r[16] || null;
+          createdAt = r[25] || r[17] || new Date().toISOString();
+          jsonStr = r[26] || '';
+        }
+
+        const folderUrlMatch = String(driveCell).match(/HYPERLINK\("([^"]+)"/i);
+        const folderUrl = folderUrlMatch ? folderUrlMatch[1] : (String(driveCell).startsWith('http') ? String(driveCell).trim() : null);
 
         const attachmentsMap: Record<string, any> = {
           CRE: null, EC: null, CIN: null, WI: null,
-          DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+          DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null
         };
 
-        // 1. Try reading attachments from column AA (index 26 - Attachments JSON)
-        const jsonStr = r[26];
+        // 1. Try reading attachments from Attachments JSON
         if (jsonStr && typeof jsonStr === 'string' && jsonStr.startsWith('{')) {
           try {
             const parsed = JSON.parse(jsonStr);
-            ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'PHOTOS'].forEach(k => {
+            ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RECALL', 'PHOTOS'].forEach(k => {
               const item = parsed[k];
               const fileUrl = item?.file_url || item?.url;
               if (item && fileUrl) {
                 const finalUrl = (fileUrl.startsWith('http') && !fileUrl.startsWith('blob:'))
                   ? fileUrl
-                  : `https://drive.google.com/drive/search?q=${folderNo}`;
+                  : (folderUrl || `https://drive.google.com/drive/search?q=${folderNo}`);
                 attachmentsMap[k] = {
                   id: `att_${folderNo}_${k}`,
                   job_id: `job_sheet_${folderNo}`,
@@ -1585,28 +1777,42 @@ export const handler = async (event: any) => {
           } catch (_) {}
         }
 
-        // 2. Fallback: check document columns N through U:
-        const docCols: Array<{ type: string; colIdx: number }> = [
-          { type: 'CRE', colIdx: 13 },
-          { type: 'EC', colIdx: 14 },
-          { type: 'CIN', colIdx: 15 },
-          { type: 'WI', colIdx: 16 },
-          { type: 'DC', colIdx: 17 },
-          { type: 'VI', colIdx: 18 },
-          { type: 'RAW_DECLA', colIdx: 19 },
-          { type: 'PHOTOS', colIdx: 20 },
-        ];
+        // 2. Fallback: check document columns
+        const docCols: Array<{ type: string; colIdx: number }> = hasSubmitDate
+          ? [
+              { type: 'CRE', colIdx: 16 },
+              { type: 'EC', colIdx: 17 },
+              { type: 'CIN', colIdx: 18 },
+              { type: 'WI', colIdx: 19 },
+              { type: 'DC', colIdx: 20 },
+              { type: 'VI', colIdx: 21 },
+              { type: 'RAW_DECLA', colIdx: 22 },
+              { type: 'RECALL', colIdx: 23 },
+              { type: 'PHOTOS', colIdx: 24 },
+            ]
+          : [
+              { type: 'CRE', colIdx: 13 },
+              { type: 'EC', colIdx: 14 },
+              { type: 'CIN', colIdx: 15 },
+              { type: 'WI', colIdx: 16 },
+              { type: 'DC', colIdx: 17 },
+              { type: 'VI', colIdx: 18 },
+              { type: 'RAW_DECLA', colIdx: 19 },
+              { type: 'PHOTOS', colIdx: 20 },
+            ];
 
         docCols.forEach(({ type, colIdx }) => {
           if (!attachmentsMap[type] && r[colIdx]) {
-            const val = String(r[colIdx]).trim();
-            if (val && val !== 'Missing' && val !== '—') {
+            const rawVal = String(r[colIdx]).trim();
+            if (rawVal && rawVal !== 'Missing' && rawVal !== '—') {
+              const urlMatch = rawVal.match(/HYPERLINK\("([^"]+)"/i);
+              const linkUrl = urlMatch ? urlMatch[1] : (rawVal.startsWith('http') ? rawVal : (folderUrl || `https://drive.google.com/drive/search?q=${folderNo}`));
               attachmentsMap[type] = {
                 id: `att_${folderNo}_${type}`,
                 job_id: `job_sheet_${folderNo}`,
                 doc_type: type,
                 file_name: `${type} Document`,
-                file_url: val.includes('http') ? val : `https://drive.google.com/drive/search?q=${folderNo}`,
+                file_url: linkUrl,
                 mime_type: type === 'PHOTOS' ? 'image/jpeg' : 'application/pdf',
                 uploaded_at: new Date().toISOString(),
               };
@@ -1616,18 +1822,16 @@ export const handler = async (event: any) => {
 
         // Count how many documents are attached
         let uploadedDocsCount = 0;
-        ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'PHOTOS'].forEach(k => {
+        ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RECALL', 'PHOTOS'].forEach(k => {
           if (attachmentsMap[k]) uploadedDocsCount++;
         });
 
-        const docsSummary = r[21] || r[13] || '';
+        const docsSummary = (hasSubmitDate ? r[25] : r[21]) || '';
         if (uploadedDocsCount === 0 && docsSummary) {
           uploadedDocsCount = parseInt(String(docsSummary).split('/')[0], 10) || 0;
         }
 
-        const isComplete = uploadedDocsCount >= 7 || String(docsSummary).includes('Complete') || String(docsSummary).includes('8/8');
-        const errorNote = r[24] || r[16] || null;
-        const createdAt = r[25] || r[17] || new Date().toISOString();
+        const isComplete = uploadedDocsCount >= 8 || String(docsSummary).includes('Complete') || String(docsSummary).includes('9/9');
 
         return {
           id: `job_sheet_${folderNo || i}`,
@@ -1640,14 +1844,18 @@ export const handler = async (event: any) => {
           model: modelVal || mr?.model || null,
           build_date: r[7] || null,
           via_no: r[8] || null,
-          request_received: r[9] || new Date().toISOString().slice(0, 10),
-          avv_verification_date: r[10] || null,
-          rav_date_of_entry: r[11] || null,
-          status: (['in_progress', 'verified', 'rav_entered', 'errored'].includes(r[12]) ? r[12] : 'in_progress'),
+          request_received: requestReceived,
+          avv_verification_date: avvVerificationDate,
+          avv_submit_date: avvSubmitDate,
+          rav_date_of_entry: ravDateOfEntry,
+          approval_date: approvalDate,
+          recall_check_date: recallCheckDate,
+          status,
           attachments: attachmentsMap,
           uploaded_docs_count: uploadedDocsCount,
           is_documents_complete: isComplete,
           videos_url: videosUrl,
+          folder_url: folderUrl,
           error_note: errorNote,
           created_at: createdAt,
         };

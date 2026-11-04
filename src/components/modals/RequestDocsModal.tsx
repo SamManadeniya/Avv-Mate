@@ -69,7 +69,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
       if (hasValidLiveAtts) {
         const mergedAttachments: Record<DocType, JobAttachment | null> = {
           CRE: null, EC: null, CIN: null, WI: null,
-          DC: null, VI: null, RAW_DECLA: null, PHOTOS: null,
+          DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null,
           ...(job.attachments || {}),
         };
         Object.entries(liveAttachments).forEach(([k, v]) => {

@@ -56,7 +56,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const [requestReceived, setRequestReceived] = useState('');
   const [videosUrl, setVideosUrl] = useState('');
   const [avvVerificationDate, setAvvVerificationDate] = useState('');
+  const [avvSubmitDate, setAvvSubmitDate] = useState('');
   const [ravDateOfEntry, setRavDateOfEntry] = useState('');
+  const [approvalDate, setApprovalDate] = useState('');
+  const [recallCheckDate, setRecallCheckDate] = useState('');
   const [status, setStatus] = useState<ComplianceJob['status']>('in_progress');
   const [errorNote, setErrorNote] = useState('');
 
@@ -66,7 +69,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   // Attachments state
   const [attachments, setAttachments] = useState<Record<DocType, any>>({
     CRE: null, EC: null, CIN: null, WI: null,
-    DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+    DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null
   });
   const [uploadingDoc, setUploadingDoc] = useState<DocType | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -129,7 +132,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         setVideoList([]);
       }
       setAvvVerificationDate(jobToEdit.avv_verification_date || '');
+      setAvvSubmitDate(jobToEdit.avv_submit_date || '');
       setRavDateOfEntry(jobToEdit.rav_date_of_entry || '');
+      setApprovalDate(jobToEdit.approval_date || '');
+      setRecallCheckDate(jobToEdit.recall_check_date || '');
       setStatus(jobToEdit.status || 'in_progress');
       setErrorNote(jobToEdit.error_note || '');
 
@@ -165,13 +171,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setVideosUrl('');
       setVideoList([]);
       setAvvVerificationDate('');
+      setAvvSubmitDate('');
       setRavDateOfEntry('');
+      setApprovalDate('');
+      setRecallCheckDate('');
       setStatus('in_progress');
       setErrorNote('');
       setMatchedVehicle(null);
       setAttachments({
         CRE: null, EC: null, CIN: null, WI: null,
-        DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+        DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null
       });
       setQueuedBatchPhotos([]);
       setBatchPhotosCount(0);
@@ -221,11 +230,11 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         setAttachments(prev => ({ ...prev, [docType]: att }));
 
         // Automatic mirror to Google Drive with proper folder segregation:
-        // - Compliance Docs (CRE, EC, CIN, WI, DC, VI, RAW_DECLA) -> ALWAYS DOCS (even if .jpg/.png)
+        // - Compliance Docs (CRE, EC, CIN, WI, DC, VI, RAW_DECLA, RECALL) -> ALWAYS DOCS (even if .jpg/.png)
         // - Photos (PHOTOS slot) -> MEDIA/PHOTOS
         // - Videos -> MEDIA/VIDEOS
         if (googleDriveService.isConfigured()) {
-          const isComplianceDoc = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL'].includes(docType);
+          const isComplianceDoc = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RECALL'].includes(docType);
           const isVid = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv)$/i.test(file.name);
           const isPhoto = !isComplianceDoc && (docType === 'PHOTOS' || file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(file.name));
           const folderLabel = isComplianceDoc ? 'DOCS' : isVid ? 'MEDIA/VIDEOS' : isPhoto ? 'MEDIA/PHOTOS' : 'DOCS';
@@ -596,7 +605,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             request_received: requestReceived,
             videos_url: videosUrl || null,
             avv_verification_date: avvVerificationDate || null,
+            avv_submit_date: avvSubmitDate || null,
             rav_date_of_entry: ravDateOfEntry || null,
+            approval_date: approvalDate || null,
+            recall_check_date: recallCheckDate || null,
             status,
             error_note: errorNote || null,
           });
@@ -609,7 +621,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             request_received: requestReceived,
             videos_url: videosUrl || null,
             avv_verification_date: avvVerificationDate || null,
+            avv_submit_date: avvSubmitDate || null,
             rav_date_of_entry: ravDateOfEntry || null,
+            approval_date: approvalDate || null,
+            recall_check_date: recallCheckDate || null,
             status,
             error_note: errorNote || null,
           };
@@ -636,7 +651,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             request_received: requestReceived,
             videos_url: videosUrl || null,
             avv_verification_date: avvVerificationDate || null,
+            avv_submit_date: avvSubmitDate || null,
             rav_date_of_entry: ravDateOfEntry || null,
+            approval_date: approvalDate || null,
+            recall_check_date: recallCheckDate || null,
             status,
             error_note: errorNote || null,
           });
@@ -651,7 +669,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             request_received: requestReceived,
             videos_url: videosUrl || null,
             avv_verification_date: avvVerificationDate || null,
+            avv_submit_date: avvSubmitDate || null,
             rav_date_of_entry: ravDateOfEntry || null,
+            approval_date: approvalDate || null,
+            recall_check_date: recallCheckDate || null,
             status,
             error_note: errorNote || null,
           };
@@ -697,6 +718,9 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           // 1. Force refresh ensures that if the folder was deleted on Drive, it is freshly recreated
           const hierarchy = await googleDriveService.ensureVehicleFolderHierarchy(cleanNo, true);
           setDriveHierarchy(hierarchy);
+          if (hierarchy?.vehicleFolder?.webViewLink) {
+            savedJob.folder_url = hierarchy.vehicleFolder.webViewLink;
+          }
 
           // 2. Upload/sync all files into their dedicated folders
           if (attList.length > 0) {
@@ -713,6 +737,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         } catch (driveErr) {
           console.warn('Drive auto-sync on save error:', driveErr);
         }
+      }
+
+      if (!savedJob.folder_url && driveHierarchy?.vehicleFolder?.webViewLink) {
+        savedJob.folder_url = driveHierarchy.vehicleFolder.webViewLink;
       }
 
       // Ensure workshop name and model report make/model are attached
@@ -740,7 +768,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       savedJob.attachments = finalAttachments;
       const count = Object.values(finalAttachments).filter(Boolean).length;
       savedJob.uploaded_docs_count = count;
-      savedJob.is_documents_complete = count >= 7;
+      savedJob.is_documents_complete = count >= 8;
+      savedJob.avv_submit_date = avvSubmitDate || null;
+      savedJob.approval_date = approvalDate || null;
+      savedJob.recall_check_date = recallCheckDate || null;
 
       await onSaved(savedJob);
       onClose();
@@ -917,7 +948,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
               {/* Completeness counter and Request button */}
               <div className="flex items-center gap-2 flex-wrap">
-                {jobToEdit && Object.values(attachments).filter(Boolean).length < 8 && onRequestDocs && (
+                {jobToEdit && Object.values(attachments).filter(Boolean).length < 9 && onRequestDocs && (
                   <button
                     type="button"
                     onClick={() => onRequestDocs(jobToEdit)}
@@ -929,7 +960,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                   </button>
                 )}
                 <span className="text-xs font-mono font-bold px-2 py-1 bg-sky-100 text-sky-800 rounded">
-                  {Object.values(attachments).filter(Boolean).length}/8 Uploaded
+                  {Object.values(attachments).filter(Boolean).length}/9 Uploaded
                 </span>
               </div>
             </div>
@@ -1380,12 +1411,48 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  AVV Submit Date
+                </label>
+                <input
+                  type="date"
+                  value={avvSubmitDate}
+                  onChange={e => setAvvSubmitDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
                   RAV Date of Entry
                 </label>
                 <input
                   type="date"
                   value={ravDateOfEntry}
                   onChange={e => setRavDateOfEntry(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Approval Payment Date
+                </label>
+                <input
+                  type="date"
+                  value={approvalDate}
+                  onChange={e => setApprovalDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Recall Check Date
+                </label>
+                <input
+                  type="date"
+                  value={recallCheckDate}
+                  onChange={e => setRecallCheckDate(e.target.value)}
                   className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm font-mono focus:ring-2 focus:ring-sky-500"
                 />
               </div>

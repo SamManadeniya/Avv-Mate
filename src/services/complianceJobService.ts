@@ -21,7 +21,7 @@ export const complianceJobService = {
         return (data || []).map((row: any) => {
           const attachmentsMap: Record<DocType, JobAttachment | null> = {
             CRE: null, EC: null, CIN: null, WI: null,
-            DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+            DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null
           };
           let docCount = 0;
           if (Array.isArray(row.job_attachments)) {
@@ -46,8 +46,12 @@ export const complianceJobService = {
             via_no: row.vehicles?.via_no || null,
             request_received: row.request_received,
             videos_url: row.videos_url,
+            folder_url: row.folder_url,
             avv_verification_date: row.avv_verification_date,
+            avv_submit_date: row.avv_submit_date,
             rav_date_of_entry: row.rav_date_of_entry,
+            approval_date: row.approval_date,
+            recall_check_date: row.recall_check_date,
             status: row.status,
             error_note: row.error_note,
             supersedes_folder_no: row.supersedes_folder_no,
@@ -55,7 +59,7 @@ export const complianceJobService = {
             updated_at: row.updated_at,
             attachments: attachmentsMap,
             uploaded_docs_count: docCount,
-            is_documents_complete: docCount === 8,
+            is_documents_complete: docCount >= 8,
           };
         });
       }
@@ -74,7 +78,7 @@ export const complianceJobService = {
     return ((viewRes.data as any[]) || []).map(row => {
       const attachmentsMap: Record<DocType, JobAttachment | null> = {
         CRE: null, EC: null, CIN: null, WI: null,
-        DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+        DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null
       };
       let docCount = 0;
       allAttachments
@@ -99,8 +103,12 @@ export const complianceJobService = {
         via_no: row.via_no,
         request_received: row.request_received,
         videos_url: row.videos_url,
+        folder_url: row.folder_url,
         avv_verification_date: row.avv_verification_date,
+        avv_submit_date: row.avv_submit_date,
         rav_date_of_entry: row.rav_date_of_entry,
+        approval_date: row.approval_date,
+        recall_check_date: row.recall_check_date,
         status: row.status,
         error_note: row.error_note,
         supersedes_folder_no: row.supersedes_folder_no,
@@ -108,7 +116,7 @@ export const complianceJobService = {
         updated_at: row.updated_at,
         attachments: attachmentsMap,
         uploaded_docs_count: docCount || row.uploaded_docs_count || 0,
-        is_documents_complete: docCount === 8,
+        is_documents_complete: docCount >= 8,
       };
     });
   },
@@ -145,8 +153,12 @@ export const complianceJobService = {
       via_no: row.vehicles?.via_no || null,
       request_received: row.request_received,
       videos_url: row.videos_url,
+      folder_url: row.folder_url,
       avv_verification_date: row.avv_verification_date,
+      avv_submit_date: row.avv_submit_date,
       rav_date_of_entry: row.rav_date_of_entry,
+      approval_date: row.approval_date,
+      recall_check_date: row.recall_check_date,
       status: row.status,
       error_note: row.error_note,
       supersedes_folder_no: row.supersedes_folder_no,
@@ -154,7 +166,7 @@ export const complianceJobService = {
       updated_at: row.updated_at,
       attachments,
       uploaded_docs_count: docCount,
-      is_documents_complete: docCount === 8,
+      is_documents_complete: docCount >= 8,
     };
   },
 
@@ -168,8 +180,12 @@ export const complianceJobService = {
         mre_no: job.mre_no || null,
         request_received: job.request_received || new Date().toISOString().slice(0, 10),
         videos_url: job.videos_url?.trim() || null,
+        folder_url: job.folder_url?.trim() || null,
         avv_verification_date: job.avv_verification_date || null,
+        avv_submit_date: job.avv_submit_date || null,
         rav_date_of_entry: job.rav_date_of_entry || null,
+        approval_date: job.approval_date || null,
+        recall_check_date: job.recall_check_date || null,
         status: job.status || 'in_progress',
         error_note: job.error_note?.trim() || null,
         supersedes_folder_no: job.supersedes_folder_no || null,
@@ -189,8 +205,12 @@ export const complianceJobService = {
         mre_no: updates.mre_no || null,
         request_received: updates.request_received,
         videos_url: updates.videos_url?.trim() || null,
+        folder_url: updates.folder_url?.trim() || null,
         avv_verification_date: updates.avv_verification_date || null,
+        avv_submit_date: updates.avv_submit_date || null,
         rav_date_of_entry: updates.rav_date_of_entry || null,
+        approval_date: updates.approval_date || null,
+        recall_check_date: updates.recall_check_date || null,
         status: updates.status,
         error_note: updates.error_note?.trim() || null,
         supersedes_folder_no: updates.supersedes_folder_no || null,

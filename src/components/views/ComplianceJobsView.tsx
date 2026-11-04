@@ -8,9 +8,10 @@ import {
   Trash2, 
   Check, 
   AlertTriangle, 
-  Video,
-  CheckCircle2,
-  MessageSquare
+  Video, 
+  CheckCircle2, 
+  MessageSquare,
+  ExternalLink
 } from 'lucide-react';
 import type { ComplianceJob } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
@@ -53,7 +54,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
 
       let matchDoc = true;
       if (docFilter === 'complete') {
-        matchDoc = job.uploaded_docs_count === 8;
+        matchDoc = (job.uploaded_docs_count || 0) >= 8;
       } else if (docFilter === 'incomplete') {
         matchDoc = (job.uploaded_docs_count || 0) < 8;
       }
@@ -73,9 +74,12 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
       'Model': j.model || '',
       'Request Received': j.request_received,
       'AVV Verification Date': j.avv_verification_date || '',
+      'AVV Submit Date': j.avv_submit_date || '',
       'RAV Date of Entry': j.rav_date_of_entry || '',
+      'Approval Date': j.approval_date || '',
+      'Recall Check Date': j.recall_check_date || '',
       'Status': j.status,
-      'Documents Uploaded': `${j.uploaded_docs_count || 0}/8`,
+      'Documents Uploaded': `${j.uploaded_docs_count || 0}/9`,
       'Videos Link': j.videos_url || '',
     }));
     exportService.exportToCsv('compliance_jobs', exportData);
@@ -164,7 +168,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
             className="flex-1 sm:flex-initial px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-md text-xs font-semibold text-slate-700 focus:ring-2 focus:ring-sky-500"
           >
             <option value="all">All Document States</option>
-            <option value="complete">🟢 Complete (8/8 Docs)</option>
+            <option value="complete">🟢 Complete (9/9 Docs)</option>
             <option value="incomplete">⚠️ Incomplete (Pending Docs)</option>
           </select>
         </div>
@@ -172,7 +176,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
 
       {/* Mobile swipe helper */}
       <div className="md:hidden px-4 py-1.5 bg-sky-50/70 border-b border-sky-100 text-[11px] text-sky-800 flex items-center justify-between font-medium">
-        <span>👉 Swipe table to view all 8 documents & dates</span>
+        <span>👉 Swipe table to view all 9 documents & dates</span>
         <span className="font-semibold text-sky-900 bg-sky-100 px-1.5 py-0.5 rounded text-[10px]">Actions pinned</span>
       </div>
 
@@ -187,7 +191,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
               <th className="py-2.5 px-3 font-bold bg-red-50/30">MRE</th>
               <th className="py-2.5 px-3 font-bold bg-sky-50/50">Request Received</th>
 
-              {/* 8 Document Attachment Columns */}
+              {/* 9 Document Attachment Columns */}
               {REQUIRED_DOC_TYPES.map(doc => (
                 <th key={doc.type} className="py-2.5 px-2 font-bold text-center bg-slate-100" title={doc.name}>
                   {doc.label}
@@ -196,7 +200,10 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
 
               <th className="py-2.5 px-3 font-bold text-center">Videos</th>
               <th className="py-2.5 px-3 font-bold">AVV Verification</th>
+              <th className="py-2.5 px-3 font-bold">AVV Submit</th>
               <th className="py-2.5 px-3 font-bold">RAV Entry</th>
+              <th className="py-2.5 px-3 font-bold">Approval Date</th>
+              <th className="py-2.5 px-3 font-bold">Recall Check</th>
               <th className="py-2.5 px-3 font-bold">Status</th>
               <th className="py-2.5 px-3 font-bold text-right sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">Actions</th>
             </tr>
@@ -204,7 +211,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
           <tbody className="divide-y divide-slate-200">
             {filteredJobs.length === 0 ? (
               <tr>
-                <td colSpan={19} className="py-12 text-center text-slate-400">
+                <td colSpan={23} className="py-12 text-center text-slate-400">
                   <p className="font-semibold text-sm">No compliance jobs found</p>
                   <p className="text-xs mt-1">Try adjusting your filters or click "New Compliance Job" to add one.</p>
                 </td>
@@ -218,8 +225,22 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                     onClick={() => onEditJob(job)}
                   >
                     {/* Folder # */}
-                    <td className="py-2.5 px-3 font-mono font-bold text-slate-900 group-hover:text-sky-700 whitespace-nowrap">
-                      {job.folder_no}
+                    <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
+                      {job.folder_url ? (
+                        <a
+                          href={job.folder_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 hover:underline"
+                          title="Open vehicle folder in Google Drive"
+                        >
+                          <span>{job.folder_no}</span>
+                          <ExternalLink className="w-3 h-3 text-sky-600" />
+                        </a>
+                      ) : (
+                        <span className="group-hover:text-sky-700">{job.folder_no}</span>
+                      )}
                     </td>
 
                     {/* VIN */}
@@ -297,9 +318,24 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                       {formatDate(job.avv_verification_date)}
                     </td>
 
+                    {/* AVV Submit Date */}
+                    <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
+                      {formatDate(job.avv_submit_date)}
+                    </td>
+
                     {/* RAV Date of Entry */}
                     <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
                       {formatDate(job.rav_date_of_entry)}
+                    </td>
+
+                    {/* Approval Payment Date */}
+                    <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
+                      {formatDate(job.approval_date)}
+                    </td>
+
+                    {/* Recall Check Date */}
+                    <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
+                      {formatDate(job.recall_check_date)}
                     </td>
 
                     {/* Status Pill */}
@@ -318,7 +354,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800">
-                          🟡 In Progress ({job.uploaded_docs_count || 0}/8)
+                          🟡 In Progress ({job.uploaded_docs_count || 0}/9)
                         </span>
                       )}
                     </td>
@@ -329,7 +365,7 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="flex items-center justify-end gap-1">
-                        {(job.uploaded_docs_count || 0) < 8 && onRequestDocs && (
+                        {(job.uploaded_docs_count || 0) < 9 && onRequestDocs && (
                           <button
                             onClick={() => onRequestDocs(job)}
                             className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded transition"

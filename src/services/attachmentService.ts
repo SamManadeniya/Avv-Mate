@@ -12,13 +12,13 @@ export const attachmentService = {
       console.warn('Error fetching attachments:', error);
       return {
         CRE: null, EC: null, CIN: null, WI: null,
-        DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+        DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null
       };
     }
 
     const map: Record<DocType, JobAttachment | null> = {
       CRE: null, EC: null, CIN: null, WI: null,
-      DC: null, VI: null, RAW_DECLA: null, PHOTOS: null
+      DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null
     };
 
     (data || []).forEach((att: any) => {

@@ -205,6 +205,7 @@ class GoogleSheetsService {
         { properties: { title: 'Vehicles', gridProperties: { frozenRowCount: 1 } } },
         { properties: { title: 'RAW_Workshops', gridProperties: { frozenRowCount: 1 } } },
         { properties: { title: 'Model_Reports', gridProperties: { frozenRowCount: 1 } } },
+        { properties: { title: 'SVC', gridProperties: { frozenRowCount: 1 } } },
       ];
 
       const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
@@ -281,7 +282,7 @@ class GoogleSheetsService {
       return {
         success: true,
         spreadsheetUrl: sheet.webViewLink,
-        syncedTabs: ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports'],
+        syncedTabs: ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'],
       };
     }
 
@@ -343,7 +344,7 @@ class GoogleSheetsService {
     return {
       success: true,
       spreadsheetUrl: data.spreadsheetUrl || sheet.webViewLink,
-      syncedTabs: data.syncedTabs || ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports'],
+      syncedTabs: data.syncedTabs || ['Compliance_Jobs', 'Vehicles', 'RAW_Workshops', 'Model_Reports', 'SVC'],
     };
   }
 

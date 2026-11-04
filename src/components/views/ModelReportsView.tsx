@@ -28,7 +28,8 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
         r.make.toLowerCase().includes(q) ||
         r.model.toLowerCase().includes(q) ||
         (r.vcc && r.vcc.toLowerCase().includes(q)) ||
-        (r.author && r.author.toLowerCase().includes(q))
+        (r.author && r.author.toLowerCase().includes(q)) ||
+        (r.unique_id && r.unique_id.toLowerCase().includes(q))
       );
     });
   }, [modelReports, searchTerm]);
@@ -36,6 +37,7 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
   const handleExportCsv = () => {
     const data = filteredReports.map(r => ({
       'MRE No': r.mre_no,
+      'Unique ID': r.unique_id || '',
       'Build Date Range (MRE)': `${r.build_from || ''} - ${r.build_to || ''}`,
       'SEV No': r.sev_no || '',
       'Build Date Range (SEV)': `${r.sev_build_from || ''} - ${r.sev_build_to || ''}`,
@@ -136,13 +138,14 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Power (kW)</th>
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Seats</th>
               <th className="py-2.5 px-4 font-bold bg-slate-100">Author (Supplier)</th>
+              <th className="py-2.5 px-4 font-bold bg-slate-100">Unique ID</th>
               <th className="py-2.5 px-4 font-bold text-right sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {filteredReports.length === 0 ? (
               <tr>
-                <td colSpan={12} className="py-12 text-center text-slate-400">
+                <td colSpan={13} className="py-12 text-center text-slate-400">
                   <FileText className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                   <p className="font-semibold text-sm">No model reports found</p>
                   <p className="text-xs mt-1">Click "Add Model Report" to add an approved MRE.</p>
@@ -187,6 +190,9 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
                   </td>
                   <td className="py-3 px-4 font-medium text-slate-800 whitespace-nowrap">
                     {report.author || '—'}
+                  </td>
+                  <td className="py-3 px-4 font-mono font-medium text-slate-700 whitespace-nowrap">
+                    {report.unique_id || '—'}
                   </td>
                   <td 
                     className="py-3 px-4 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-sky-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]" 

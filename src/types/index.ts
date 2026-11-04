@@ -1,4 +1,4 @@
-export type DocType = 'CRE' | 'EC' | 'CIN' | 'WI' | 'DC' | 'VI' | 'RAW_DECLA' | 'PHOTOS';
+export type DocType = 'CRE' | 'EC' | 'CIN' | 'WI' | 'DC' | 'VI' | 'RAW_DECLA' | 'RECALL' | 'PHOTOS';
 
 export interface DocDefinition {
   type: DocType;
@@ -15,6 +15,7 @@ export const REQUIRED_DOC_TYPES: DocDefinition[] = [
   { type: 'DC', label: 'DC', name: 'Deregistration Cert', description: 'De-registration Certificate' },
   { type: 'VI', label: 'VI', name: 'Vehicle Inspection', description: 'AVV / RAW Physical Inspection Checklist' },
   { type: 'RAW_DECLA', label: 'RAW DECLA', name: 'RAW Declaration', description: 'Signed Workshop Compliance Declaration' },
+  { type: 'RECALL', label: 'RECALL', name: 'Recall Check', description: 'Recall Clearance / Status Check Document' },
   { type: 'PHOTOS', label: 'PHOTOS', name: 'Compliance Photos', description: 'Photographic Evidence (Labels, Odometer, Modifications)' },
 ];
 
@@ -30,6 +31,7 @@ export interface RawWorkshop {
 
 export interface ModelReport {
   mre_no: string; // PK e.g. MRE-000008
+  unique_id?: string | null; // Model Report Unique ID
   build_from?: string | null;
   build_to?: string | null;
   sev_no?: string | null;
@@ -85,8 +87,12 @@ export interface ComplianceJob {
   via_no?: string | null;
   request_received: string; // YYYY-MM-DD
   videos_url?: string | null; // Google Drive link
+  folder_url?: string | null; // Direct Google Drive folder URL
   avv_verification_date?: string | null;
+  avv_submit_date?: string | null;
   rav_date_of_entry?: string | null;
+  approval_date?: string | null; // Approval Payment Date
+  recall_check_date?: string | null;
   status: JobStatus;
   error_note?: string | null;
   supersedes_folder_no?: string | null;

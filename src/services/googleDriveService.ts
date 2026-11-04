@@ -64,16 +64,17 @@ export function classifyFileCategory(file: { name?: string; mimeType?: string; d
   const docType = (file.docType || '').toUpperCase().trim();
 
   // 1. Compliance Documents ALWAYS go to DOCS regardless of file extension (even if .jpg, .png, etc.)
-  // CRE, EC, CIN, WI, DC, VI, RAW_DECLA
-  const COMPLIANCE_DOCS = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RAW DECL'];
+  // CRE, EC, CIN, WI, DC, VI, RAW_DECLA, RECALL
+  const COMPLIANCE_DOCS = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RAW DECL', 'RECALL'];
   if (COMPLIANCE_DOCS.includes(docType)) {
     return 'docs';
   }
 
-  // Check if filename indicates a compliance document (e.g. EC_..., export_cert..., etc.)
+  // Check if filename indicates a compliance document (e.g. EC_..., export_cert..., recall..., etc.)
   if (
-    /^(cre|ec|cin|wi|dc|vi|raw_decla|raw_decl|rawdecl)[_.\-\s]/i.test(name) ||
-    /^(cre|ec|cin|wi|dc|vi)\.[a-z0-9]+$/i.test(name) ||
+    /^(cre|ec|cin|wi|dc|vi|raw_decla|raw_decl|rawdecl|recall)[_.\-\s]/i.test(name) ||
+    /^(cre|ec|cin|wi|dc|vi|recall)\.[a-z0-9]+$/i.test(name) ||
+    name.includes('recall') ||
     name.includes('export_cert') ||
     name.includes('export cert') ||
     name.includes('exportcertificate') ||
