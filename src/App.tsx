@@ -971,6 +971,7 @@ export const App: React.FC = () => {
         invoiceToEdit={selectedInvoice}
         workshops={workshops}
         jobs={complianceJobs}
+        modelReports={modelReports}
         initialJob={invoiceJobTarget}
       />
 
