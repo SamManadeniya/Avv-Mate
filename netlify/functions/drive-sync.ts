@@ -44,6 +44,17 @@ interface RequestBody {
   clientSecret?: string;
 }
 
+const cleanDriveFolderId = (input?: string): string => {
+  if (!input) return '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
+  const trimmed = input.trim();
+  const urlMatch = trimmed.match(/(?:folders|project|file\/d)\/([a-zA-Z0-9_-]{15,})/);
+  if (urlMatch && urlMatch[1]) return urlMatch[1];
+  const queryMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]{15,})/);
+  if (queryMatch && queryMatch[1]) return queryMatch[1];
+  if (/^[a-zA-Z0-9_-]{15,}$/.test(trimmed)) return trimmed;
+  return trimmed || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
+};
+
 const isComplianceDocServer = (name: string, docType?: string): boolean => {
   const dt = (docType || '').toUpperCase().trim();
   const complianceTypes = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RAW DECL', 'RECALL'];
