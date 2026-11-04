@@ -53,17 +53,40 @@ export type MediaCategory = 'docs' | 'photos' | 'videos';
 
 /**
  * Classifies a file into its appropriate vehicle folder:
- * - 'photos' -> MEDIA/PHOTOS (batch photos, jpg, png, heic, PHOTOS slot)
+ * - 'docs'   -> DOCS (CRE, EC, CIN, WI, DC, VI, RAW_DECLA - ALWAYS go to DOCS regardless of extension like .jpg or .png)
  * - 'videos' -> MEDIA/VIDEOS (mp4, mov, avi, inspection videos)
- * - 'docs'   -> DOCS (compliance PDFs, certificates, declarations)
+ * - 'photos' -> MEDIA/PHOTOS (batch photos, PHOTOS slot)
  */
 export function classifyFileCategory(file: { name?: string; mimeType?: string; docType?: string; category?: MediaCategory }): MediaCategory {
   if (file.category) return file.category;
   const mime = (file.mimeType || '').toLowerCase();
   const name = (file.name || '').toLowerCase();
-  const docType = (file.docType || '').toUpperCase();
+  const docType = (file.docType || '').toUpperCase().trim();
 
-  // 1. Check for Videos
+  // 1. Compliance Documents ALWAYS go to DOCS regardless of file extension (even if .jpg, .png, etc.)
+  // CRE, EC, CIN, WI, DC, VI, RAW_DECLA
+  const COMPLIANCE_DOCS = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RAW DECL'];
+  if (COMPLIANCE_DOCS.includes(docType)) {
+    return 'docs';
+  }
+
+  // Check if filename indicates a compliance document (e.g. EC_..., export_cert..., etc.)
+  if (
+    /^(cre|ec|cin|wi|dc|vi|raw_decla|raw_decl|rawdecl)[_.\-\s]/i.test(name) ||
+    /^(cre|ec|cin|wi|dc|vi)\.[a-z0-9]+$/i.test(name) ||
+    name.includes('export_cert') ||
+    name.includes('export cert') ||
+    name.includes('exportcertificate') ||
+    name.includes('export') ||
+    name.includes('concessional') ||
+    name.includes('deregist') ||
+    name.includes('inspection') ||
+    name.includes('declaration')
+  ) {
+    return 'docs';
+  }
+
+  // 2. Check for Videos -> MEDIA/VIDEOS
   if (
     docType === 'VIDEOS' ||
     docType === 'VIDEO' ||
@@ -73,7 +96,7 @@ export function classifyFileCategory(file: { name?: string; mimeType?: string; d
     return 'videos';
   }
 
-  // 2. Check for Photos / Images
+  // 3. Check for Photos / Images -> MEDIA/PHOTOS
   if (
     docType === 'PHOTOS' ||
     docType === 'PHOTO' ||
@@ -83,7 +106,7 @@ export function classifyFileCategory(file: { name?: string; mimeType?: string; d
     return 'photos';
   }
 
-  // 3. Default to Compliance DOCS (PDFs, reports, declarations)
+  // 4. Default to Compliance DOCS (PDFs, reports, declarations)
   return 'docs';
 }
 

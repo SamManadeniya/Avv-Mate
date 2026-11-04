@@ -54,27 +54,41 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
 
     let isMounted = true;
 
-    // Load live attachments directly from DB to guarantee 100% fresh detection
+    // 1. Generate template immediately from current job state (contains live Master Sheet attachments)
+    const initialT = messagingService.generateMissingDocsTemplate(job, matchedWorkshop);
+    setTemplates(initialT);
+    setCustomWhatsAppMessage(initialT.whatsappMessage);
+    setCustomEmailSubject(initialT.subject);
+    setCustomEmailBody(initialT.emailBody);
+    setIsEdited(false);
+
+    // 2. Only if Supabase has valid live attachments, merge them without wiping existing attachments
     attachmentService.getByJobId(job.id).then((liveAttachments: Record<DocType, JobAttachment | null>) => {
       if (!isMounted) return;
-      const jobWithLiveAtts = {
-        ...job,
-        attachments: liveAttachments
-      };
-      const t = messagingService.generateMissingDocsTemplate(jobWithLiveAtts, matchedWorkshop);
-      setTemplates(t);
-      setCustomWhatsAppMessage(t.whatsappMessage);
-      setCustomEmailSubject(t.subject);
-      setCustomEmailBody(t.emailBody);
-      setIsEdited(false);
+      const hasValidLiveAtts = Object.values(liveAttachments || {}).some(a => Boolean(a && (a.file_url || a.file_name)));
+      if (hasValidLiveAtts) {
+        const mergedAttachments: Record<DocType, JobAttachment | null> = {
+          CRE: null, EC: null, CIN: null, WI: null,
+          DC: null, VI: null, RAW_DECLA: null, PHOTOS: null,
+          ...(job.attachments || {}),
+        };
+        Object.entries(liveAttachments).forEach(([k, v]) => {
+          if (v && (v.file_url || v.file_name)) {
+            mergedAttachments[k as DocType] = v;
+          }
+        });
+        const jobWithLiveAtts: ComplianceJob = {
+          ...job,
+          attachments: mergedAttachments
+        };
+        const updatedT = messagingService.generateMissingDocsTemplate(jobWithLiveAtts, matchedWorkshop);
+        setTemplates(updatedT);
+        setCustomWhatsAppMessage(updatedT.whatsappMessage);
+        setCustomEmailSubject(updatedT.subject);
+        setCustomEmailBody(updatedT.emailBody);
+      }
     }).catch((err: unknown) => {
-      console.warn('Failed to load live attachments for template, falling back to job cache:', err);
-      const t = messagingService.generateMissingDocsTemplate(job, matchedWorkshop);
-      setTemplates(t);
-      setCustomWhatsAppMessage(t.whatsappMessage);
-      setCustomEmailSubject(t.subject);
-      setCustomEmailBody(t.emailBody);
-      setIsEdited(false);
+      console.warn('Failed to load live attachments for template, using current job state:', err);
     });
 
     setRecipientPhone(matchedWorkshop?.contact_phone || '');

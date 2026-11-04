@@ -44,6 +44,32 @@ interface RequestBody {
   clientSecret?: string;
 }
 
+const isComplianceDocServer = (name: string, docType?: string): boolean => {
+  const dt = (docType || '').toUpperCase().trim();
+  const complianceTypes = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RAW DECL'];
+  if (dt && complianceTypes.includes(dt)) {
+    return true;
+  }
+  const n = (name || '').toLowerCase().trim();
+  if (
+    /^(cre|ec|cin|wi|dc|vi|raw_decla|raw_decl|rawdecl)[_.\-\s]/i.test(n) ||
+    /^(cre|ec|cin|wi|dc|vi)\.[a-z0-9]+$/i.test(n) ||
+    n.includes('concessional') ||
+    n.includes('export_cert') ||
+    n.includes('export cert') ||
+    n.includes('exportcertificate') ||
+    n.includes('export') ||
+    n.includes('import_notice') ||
+    n.includes('work_instruction') ||
+    n.includes('deregist') ||
+    n.includes('inspection') ||
+    n.includes('declaration')
+  ) {
+    return true;
+  }
+  return false;
+};
+
 const isImageFileServer = (name: string, mime?: string) => {
   const m = (mime || '').toLowerCase();
   const n = (name || '').toLowerCase();
@@ -119,6 +145,12 @@ const organizeVehicleFoldersServer = async (
       const docsData = await docsRes.json();
       const files = docsData.files || [];
       for (const f of files) {
+        // Do NOT move compliance documents out of DOCS, even if they are .jpg, .png, etc.
+        // CRE, EC, CIN, WI, DC, VI, RAW_DECLA all belong in DOCS
+        if (isComplianceDocServer(f.name)) {
+          continue;
+        }
+
         if (isImageFileServer(f.name, f.mimeType)) {
           const ok = await moveOrCleanMisplacedFileServer(token, f.id, f.name, docsFolderId, photosFolderId);
           if (ok) moved.push({ name: f.name, from: 'DOCS', to: 'MEDIA/PHOTOS' });
@@ -641,10 +673,13 @@ export const handler = async (event: any) => {
           // Route to appropriate folder based on targetFolderId, category, docType, or file type
           let targetId = f.targetFolderId;
           if (!targetId) {
-            const isPhoto = f.category === 'photos' || f.docType === 'PHOTOS' || isImageFileServer(f.name, f.mimeType);
-            const isVideo = f.category === 'videos' || f.docType === 'VIDEOS' || isVideoFileServer(f.name, f.mimeType);
+            const isCompliance = isComplianceDocServer(f.name, f.docType) || f.category === 'docs';
+            const isVideo = !isCompliance && (f.category === 'videos' || f.docType === 'VIDEOS' || isVideoFileServer(f.name, f.mimeType));
+            const isPhoto = !isCompliance && (f.category === 'photos' || f.docType === 'PHOTOS' || isImageFileServer(f.name, f.mimeType));
 
-            if (isPhoto && photosFolderId) {
+            if (isCompliance) {
+              targetId = docsFolderId;
+            } else if (isPhoto && photosFolderId) {
               targetId = photosFolderId;
             } else if (isVideo && videosFolderId) {
               targetId = videosFolderId;

@@ -221,19 +221,21 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         setAttachments(prev => ({ ...prev, [docType]: att }));
 
         // Automatic mirror to Google Drive with proper folder segregation:
-        // - Photos -> MEDIA/PHOTOS
+        // - Compliance Docs (CRE, EC, CIN, WI, DC, VI, RAW_DECLA) -> ALWAYS DOCS (even if .jpg/.png)
+        // - Photos (PHOTOS slot) -> MEDIA/PHOTOS
         // - Videos -> MEDIA/VIDEOS
-        // - PDFs / Docs -> DOCS
         if (googleDriveService.isConfigured()) {
-          const isImg = docType === 'PHOTOS' || file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(file.name);
+          const isComplianceDoc = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL'].includes(docType);
           const isVid = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv)$/i.test(file.name);
-          const folderLabel = isImg ? 'MEDIA/PHOTOS' : isVid ? 'MEDIA/VIDEOS' : 'DOCS';
+          const isPhoto = !isComplianceDoc && (docType === 'PHOTOS' || file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(file.name));
+          const folderLabel = isComplianceDoc ? 'DOCS' : isVid ? 'MEDIA/VIDEOS' : isPhoto ? 'MEDIA/PHOTOS' : 'DOCS';
 
           googleDriveService.syncJobAttachmentsToDrive(folderNo, [{
             name: file.name,
             mimeType: file.type,
             fileObject: file,
             docType,
+            category: isComplianceDoc ? 'docs' : isVid ? 'videos' : 'photos',
           }]).then(() => {
             setDriveFeedback(`✓ Auto-saved ${file.name} to Google Drive (${folderNo}/${folderLabel})`);
           }).catch(e => console.warn('Background Drive upload:', e));

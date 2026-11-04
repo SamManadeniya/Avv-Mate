@@ -17,8 +17,14 @@ export const messagingService = {
     const attachedTypes = new Set<DocType>();
     if (job.attachments) {
       Object.entries(job.attachments).forEach(([type, att]) => {
-        if (att) attachedTypes.add(type as DocType);
+        if (att && (att.file_url || att.file_name || (typeof att === 'string' && (att as string).trim() !== ''))) {
+          attachedTypes.add(type as DocType);
+        }
       });
+    }
+
+    if ((job as any).batch_photos_count && (job as any).batch_photos_count > 0) {
+      attachedTypes.add('PHOTOS');
     }
 
     const missingDocs: { type: DocType; label: string; name: string }[] = [];
