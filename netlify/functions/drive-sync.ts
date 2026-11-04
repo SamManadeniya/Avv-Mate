@@ -1184,11 +1184,11 @@ export const handler = async (event: any) => {
             ]
           },
           {
-            range: 'Model_Reports!A1:M1',
+            range: 'Model_Reports!A1:O1',
             values: [
               [
-                'MRE #', 'Unique ID', 'Make', 'Model', 'SEV #', 'Category (VCC)',
-                'Build From', 'Build To', 'Tare (kg)', 'Power (kW)', 'Seats',
+                'MRE #', 'Unique ID', 'Make', 'Model', 'SEV #', 'Build From', 'Build To',
+                'SEV Build From', 'SEV Build To', 'Category (VCC)', 'Tare (kg)', 'Power (kW)', 'Seats',
                 'Author', 'Created At'
               ]
             ]
@@ -1324,20 +1324,22 @@ export const handler = async (event: any) => {
           const rowNum = idx + 2;
           const cleanFolder = (j.folder_no || '').toUpperCase().trim();
           const driveFolderInfo = folderMap.get(cleanFolder);
-          const folderUrl = (j.folder_url && j.folder_url.startsWith('https://drive.google.com/drive/folders/'))
+          const folderUrl = (j.folder_url && j.folder_url.startsWith('https://drive.google.com/drive/folders/') && !j.folder_url.endsWith(rootParent))
             ? j.folder_url
-            : (driveFolderInfo ? driveFolderInfo.webViewLink : (cleanFolder ? `https://drive.google.com/drive/folders/${rootParent}` : ''));
+            : (driveFolderInfo ? driveFolderInfo.webViewLink : (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder)}` : ''));
           const driveCell = folderUrl ? `=HYPERLINK("${folderUrl}", "${j.folder_no}")` : (j.folder_no || '');
-          const videosCell = j.videos_url ? `=HYPERLINK("${j.videos_url}", "Watch Videos")` : '';
+          const videosCell = j.videos_url
+            ? `=HYPERLINK("${j.videos_url}", "Watch Videos")`
+            : (cleanFolder ? `=HYPERLINK("https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' VIDEOS')}", "Watch Videos")` : '');
           const workshopFormula = `=IFERROR(XLOOKUP(C${rowNum}, RAW_Workshops!A:A, RAW_Workshops!B:B), "${(j.raw_workshop_name || '').replace(/"/g, '""')}")`;
 
           const att = j.attachments || {};
           const formatDocCell = (docType: string) => {
             const item = att[docType];
             if (!item) return '';
-            const docUrl = item.file_url && item.file_url.startsWith('https://drive.google.com')
+            const docUrl = (item.file_url && item.file_url.startsWith('https://drive.google.com') && !item.file_url.endsWith(rootParent))
               ? item.file_url
-              : (folderUrl || '');
+              : (folderUrl || (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' ' + docType)}` : ''));
             if (!docUrl) return (item.file_name || docType).replace(/"/g, '""');
             return `=HYPERLINK("${docUrl}", "${(item.file_name || docType).replace(/"/g, '""')}")`;
           };
@@ -1350,9 +1352,9 @@ export const handler = async (event: any) => {
           const viCell = formatDocCell('VI');
           const rawDeclaCell = formatDocCell('RAW_DECLA');
           const recallCell = formatDocCell('RECALL');
-          const photosUrl = att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com')
+          const photosUrl = (att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com') && !att['PHOTOS'].file_url.endsWith(rootParent))
             ? att['PHOTOS'].file_url
-            : (folderUrl || '');
+            : (folderUrl || (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' PHOTOS')}` : ''));
           const photosCell = photosUrl
             ? `=HYPERLINK("${photosUrl}", "${(att['PHOTOS']?.file_name || 'Photos').replace(/"/g, '""')}")`
             : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
@@ -1485,9 +1487,11 @@ export const handler = async (event: any) => {
             r.make || '',
             r.model || '',
             r.sev_no || '',
-            r.vcc || '',
             r.build_from || '',
             r.build_to || '',
+            r.sev_build_from || '',
+            r.sev_build_to || '',
+            r.vcc || '',
             r.tare_kg || '',
             r.power_kw || '',
             r.seats || '',
@@ -1496,7 +1500,7 @@ export const handler = async (event: any) => {
           ]);
         });
 
-        updateData.push({ range: 'Model_Reports!A1:M', values: reportRows });
+        updateData.push({ range: 'Model_Reports!A1:O', values: reportRows });
       }
 
       // 5. SVC Tab (Consolidated view combining all 4 tables into requested 31 columns)
@@ -1527,25 +1531,25 @@ export const handler = async (event: any) => {
           const m = reportsMap.get(cleanMreNo) || {};
 
           const driveFolderInfo = folderMap.get(cleanFolder);
-          const folderUrl = (j.folder_url && j.folder_url.startsWith('https://drive.google.com/drive/folders/'))
+          const folderUrl = (j.folder_url && j.folder_url.startsWith('https://drive.google.com/drive/folders/') && !j.folder_url.endsWith(rootParent))
             ? j.folder_url
-            : (driveFolderInfo ? driveFolderInfo.webViewLink : (cleanFolder ? `https://drive.google.com/drive/folders/${rootParent}` : ''));
+            : (driveFolderInfo ? driveFolderInfo.webViewLink : (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder)}` : ''));
           const folderCell = folderUrl ? `=HYPERLINK("${folderUrl}", "${j.folder_no}")` : (j.folder_no || '');
 
           const att = j.attachments || {};
           const formatDocCell = (docType: string) => {
             const item = att[docType];
             if (!item) return '';
-            const docUrl = item.file_url && item.file_url.startsWith('https://drive.google.com')
+            const docUrl = (item.file_url && item.file_url.startsWith('https://drive.google.com') && !item.file_url.endsWith(rootParent))
               ? item.file_url
-              : (folderUrl || '');
+              : (folderUrl || (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' ' + docType)}` : ''));
             if (!docUrl) return (item.file_name || docType).replace(/"/g, '""');
             return `=HYPERLINK("${docUrl}", "${(item.file_name || docType).replace(/"/g, '""')}")`;
           };
 
-          const photosUrl = att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com')
+          const photosUrl = (att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com') && !att['PHOTOS'].file_url.endsWith(rootParent))
             ? att['PHOTOS'].file_url
-            : (folderUrl || '');
+            : (folderUrl || (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' PHOTOS')}` : ''));
           const photosCell = photosUrl
             ? `=HYPERLINK("${photosUrl}", "${(att['PHOTOS']?.file_name || 'Photos').replace(/"/g, '""')}")`
             : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
@@ -1689,7 +1693,7 @@ export const handler = async (event: any) => {
       }
 
       let refreshedTokenToReturn: string | null = null;
-      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:AE&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:M&ranges=SVC!A1:AE`;
+      const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:AE&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:O&ranges=SVC!A1:AE`;
       let readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
 
       // If 401 UNAUTHENTICATED, attempt server-side token refresh via refreshToken
@@ -1766,18 +1770,22 @@ export const handler = async (event: any) => {
       const reportsRaw = ranges[3]?.values || [];
       const reportHeaders = (reportsRaw[0] || []).map((h: any) => String(h || '').toLowerCase().trim());
 
-      const mreIdx = reportHeaders.findIndex(h => h.includes('mre'));
+      const mreIdx = reportHeaders.findIndex(h => h === 'mre #' || h === 'mre no' || h === 'mre' || h === 'mre_no' || (h.startsWith('mre') && !h.includes('date') && !h.includes('range') && !h.includes('build') && !h.includes('author')));
       const uniqueIdx = reportHeaders.findIndex(h => h.includes('unique'));
-      const makeIdx = reportHeaders.findIndex(h => h === 'make');
-      const modelIdx = reportHeaders.findIndex(h => h === 'model');
-      const sevIdx = reportHeaders.findIndex(h => h.includes('sev') && !h.includes('build'));
+      const makeIdx = reportHeaders.findIndex(h => h === 'make' || (h.includes('make') && !h.includes('mre')));
+      const modelIdx = reportHeaders.findIndex(h => h === 'model' || (h.includes('model') && !h.includes('mre') && !h.includes('report')));
+      const sevIdx = reportHeaders.findIndex(h => h === 'sev #' || h === 'sev no' || h === 'sev' || h === 'sev_no' || (h.includes('sev') && !h.includes('build') && !h.includes('range') && !h.includes('date')));
       const vccIdx = reportHeaders.findIndex(h => h.includes('vcc') || h.includes('category'));
       const buildFromIdx = reportHeaders.findIndex(h => h.includes('build from') || h === 'from');
       const buildToIdx = reportHeaders.findIndex(h => h.includes('build to') || h === 'to');
+      const mreRangeIdx = reportHeaders.findIndex(h => h.includes('mre') && (h.includes('range') || h.includes('date')));
+      const sevFromIdx = reportHeaders.findIndex(h => h.includes('sev') && h.includes('from'));
+      const sevToIdx = reportHeaders.findIndex(h => h.includes('sev') && h.includes('to'));
+      const sevRangeIdx = reportHeaders.findIndex(h => h.includes('sev') && (h.includes('range') || h.includes('date')));
       const tareIdx = reportHeaders.findIndex(h => h.includes('tare'));
       const powerIdx = reportHeaders.findIndex(h => h.includes('power'));
       const seatsIdx = reportHeaders.findIndex(h => h.includes('seats'));
-      const authorIdx = reportHeaders.findIndex(h => h.includes('author') || h.includes('supplier'));
+      const authorIdx = reportHeaders.findIndex(h => h.includes('author') || h.includes('supplier') || h.includes('owner'));
       const createdAtIdx = reportHeaders.findIndex(h => h.includes('created'));
 
       const modelReports = reportsRaw.slice(1).filter((r: any[]) => r[0] && String(r[0]).trim() !== '').map((r: any[]) => {
@@ -1788,13 +1796,28 @@ export const handler = async (event: any) => {
         const model = modelIdx >= 0 ? r[modelIdx] : (uniqueFound ? r[3] : r[2]);
         const sevNo = sevIdx >= 0 ? r[sevIdx] : (uniqueFound ? r[4] : r[3]);
         const vcc = vccIdx >= 0 ? r[vccIdx] : (uniqueFound ? r[5] : r[4]);
-        const buildFrom = buildFromIdx >= 0 ? r[buildFromIdx] : (uniqueFound ? r[6] : r[5]);
-        const buildTo = buildToIdx >= 0 ? r[buildToIdx] : (uniqueFound ? r[7] : r[6]);
-        const tareVal = tareIdx >= 0 ? r[tareIdx] : (uniqueFound ? r[8] : r[7]);
-        const powerVal = powerIdx >= 0 ? r[powerIdx] : (uniqueFound ? r[9] : r[8]);
-        const seatsVal = seatsIdx >= 0 ? r[seatsIdx] : (uniqueFound ? r[10] : r[9]);
-        const authorVal = authorIdx >= 0 ? r[authorIdx] : (uniqueFound ? r[11] : r[10]);
-        const createdVal = createdAtIdx >= 0 ? r[createdAtIdx] : (uniqueFound ? r[12] : r[11]);
+
+        let buildFrom = buildFromIdx >= 0 ? r[buildFromIdx] : (uniqueFound ? r[6] : r[5]);
+        let buildTo = buildToIdx >= 0 ? r[buildToIdx] : (uniqueFound ? r[7] : r[6]);
+        if ((!buildFrom || !buildTo) && mreRangeIdx >= 0 && r[mreRangeIdx]) {
+          const parts = String(r[mreRangeIdx]).split(/\s+to\s+|\s*-\s*/i);
+          if (parts[0]) buildFrom = parts[0].trim();
+          if (parts[1]) buildTo = parts[1].trim();
+        }
+
+        let sevBuildFrom = sevFromIdx >= 0 ? r[sevFromIdx] : null;
+        let sevBuildTo = sevToIdx >= 0 ? r[sevToIdx] : null;
+        if ((!sevBuildFrom || !sevBuildTo) && sevRangeIdx >= 0 && r[sevRangeIdx]) {
+          const parts = String(r[sevRangeIdx]).split(/\s+to\s+|\s*-\s*/i);
+          if (parts[0]) sevBuildFrom = parts[0].trim();
+          if (parts[1]) sevBuildTo = parts[1].trim();
+        }
+
+        const tareVal = tareIdx >= 0 ? r[tareIdx] : (uniqueFound ? r[10] : r[8]);
+        const powerVal = powerIdx >= 0 ? r[powerIdx] : (uniqueFound ? r[11] : r[9]);
+        const seatsVal = seatsIdx >= 0 ? r[seatsIdx] : (uniqueFound ? r[12] : r[10]);
+        const authorVal = authorIdx >= 0 ? r[authorIdx] : (uniqueFound ? r[13] : r[11]);
+        const createdVal = createdAtIdx >= 0 ? r[createdAtIdx] : (uniqueFound ? r[14] : r[12]);
 
         return {
           mre_no: String(mreNo || '').trim(),
@@ -1805,6 +1828,8 @@ export const handler = async (event: any) => {
           vcc: vcc ? String(vcc).trim() : null,
           build_from: buildFrom ? String(buildFrom).trim() : null,
           build_to: buildTo ? String(buildTo).trim() : null,
+          sev_build_from: sevBuildFrom ? String(sevBuildFrom).trim() : null,
+          sev_build_to: sevBuildTo ? String(sevBuildTo).trim() : null,
           tare_kg: tareVal ? parseFloat(tareVal) : null,
           power_kw: powerVal ? parseFloat(powerVal) : null,
           seats: seatsVal ? parseInt(seatsVal, 10) : null,

@@ -1,93 +1,122 @@
-import { supabase } from '../lib/supabase';
 import type { ModelReport } from '../types';
+import { googleSheetsService } from './googleSheetsService';
+import { DEFAULT_MODEL_REPORTS } from '../data/seedData';
 
 export const modelReportService = {
   async getAll(): Promise<ModelReport[]> {
-    const { data, error } = await supabase
-      .from('model_reports')
-      .select('*')
-      .order('mre_no', { ascending: true });
-
-    if (error) throw error;
-    return (data || []) as ModelReport[];
+    const cached = googleSheetsService.getCachedMasterData();
+    if (cached?.modelReports && cached.modelReports.length > 0) {
+      return cached.modelReports;
+    }
+    return DEFAULT_MODEL_REPORTS;
   },
 
-  async getByNo(mreNo: string): Promise<ModelReport | null> {
-    const { data, error } = await supabase
-      .from('model_reports')
-      .select('*')
-      .eq('mre_no', mreNo)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data as ModelReport | null;
+  async getByMreNo(mreNo: string): Promise<ModelReport | null> {
+    const reports = await this.getAll();
+    const cleanNo = mreNo.toUpperCase().trim();
+    return reports.find(r => r.mre_no.toUpperCase() === cleanNo) || null;
   },
 
   async create(report: ModelReport): Promise<ModelReport> {
-    const { data, error } = await supabase
-      .from('model_reports')
-      .insert([{
-        mre_no: report.mre_no.toUpperCase().trim(),
-        unique_id: report.unique_id?.trim() || null,
-        make: report.make.trim(),
-        model: report.model.trim(),
-        sev_no: report.sev_no?.trim() || null,
-        build_from: report.build_from || null,
-        build_to: report.build_to || null,
-        sev_build_from: report.sev_build_from || null,
-        sev_build_to: report.sev_build_to || null,
-        vcc: report.vcc?.trim() || null,
-        tare_kg: report.tare_kg ? Number(report.tare_kg) : null,
-        power_kw: report.power_kw ? Number(report.power_kw) : null,
-        seats: report.seats ? Number(report.seats) : null,
-        author: report.author?.trim() || null,
-      }])
-      .select()
-      .single();
+    const currentReports = await this.getAll();
+    const cached = googleSheetsService.getCachedMasterData();
 
-    if (error) throw error;
-    return {
-      ...(data as ModelReport),
-      unique_id: (data as any)?.unique_id || report.unique_id || null,
+    const cleanNo = report.mre_no.toUpperCase().trim();
+    const cleanUniqueId = report.unique_id ? report.unique_id.trim() : null;
+
+    const newReport: ModelReport = {
+      ...report,
+      mre_no: cleanNo,
+      unique_id: cleanUniqueId,
+      created_at: report.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
+
+    const updatedReports = [newReport, ...currentReports.filter(r => r.mre_no.toUpperCase() !== cleanNo)];
+
+    googleSheetsService.setCachedMasterData({
+      jobs: cached?.jobs || [],
+      vehicles: cached?.vehicles || [],
+      workshops: cached?.workshops || [],
+      modelReports: updatedReports,
+    });
+
+    if (googleSheetsService.isConfigured()) {
+      googleSheetsService.syncAllDataToMasterSheet(
+        cached?.jobs || [],
+        cached?.vehicles || [],
+        cached?.workshops || [],
+        updatedReports
+      ).catch(e => console.warn('Background master sheet sync notice:', e));
+    }
+
+    return newReport;
   },
 
   async update(mreNo: string, updates: Partial<ModelReport>): Promise<ModelReport> {
-    const { data, error } = await supabase
-      .from('model_reports')
-      .update({
-        unique_id: updates.unique_id !== undefined ? (updates.unique_id?.trim() || null) : undefined,
-        make: updates.make?.trim(),
-        model: updates.model?.trim(),
-        sev_no: updates.sev_no?.trim() || null,
-        build_from: updates.build_from || null,
-        build_to: updates.build_to || null,
-        sev_build_from: updates.sev_build_from || null,
-        sev_build_to: updates.sev_build_to || null,
-        vcc: updates.vcc?.trim() || null,
-        tare_kg: updates.tare_kg !== undefined ? (updates.tare_kg ? Number(updates.tare_kg) : null) : undefined,
-        power_kw: updates.power_kw !== undefined ? (updates.power_kw ? Number(updates.power_kw) : null) : undefined,
-        seats: updates.seats !== undefined ? (updates.seats ? Number(updates.seats) : null) : undefined,
-        author: updates.author !== undefined ? (updates.author?.trim() || null) : undefined,
-      })
-      .eq('mre_no', mreNo)
-      .select()
-      .single();
+    const currentReports = await this.getAll();
+    const cached = googleSheetsService.getCachedMasterData();
 
-    if (error) throw error;
-    return {
-      ...(data as ModelReport),
-      unique_id: (data as any)?.unique_id || updates.unique_id || null,
+    const cleanNo = mreNo.toUpperCase().trim();
+    const idx = currentReports.findIndex(r => r.mre_no.toUpperCase() === cleanNo);
+    if (idx === -1) {
+      throw new Error(`Model Report with MRE No ${mreNo} not found.`);
+    }
+
+    const existing = currentReports[idx];
+    const cleanUniqueId = updates.unique_id !== undefined ? (updates.unique_id ? updates.unique_id.trim() : null) : existing.unique_id;
+
+    const updatedReport: ModelReport = {
+      ...existing,
+      ...updates,
+      mre_no: cleanNo,
+      unique_id: cleanUniqueId,
+      updated_at: new Date().toISOString(),
     };
+
+    const updatedReports = [...currentReports];
+    updatedReports[idx] = updatedReport;
+
+    googleSheetsService.setCachedMasterData({
+      jobs: cached?.jobs || [],
+      vehicles: cached?.vehicles || [],
+      workshops: cached?.workshops || [],
+      modelReports: updatedReports,
+    });
+
+    if (googleSheetsService.isConfigured()) {
+      googleSheetsService.syncAllDataToMasterSheet(
+        cached?.jobs || [],
+        cached?.vehicles || [],
+        cached?.workshops || [],
+        updatedReports
+      ).catch(e => console.warn('Background master sheet sync notice:', e));
+    }
+
+    return updatedReport;
   },
 
   async delete(mreNo: string): Promise<void> {
-    const { error } = await supabase
-      .from('model_reports')
-      .delete()
-      .eq('mre_no', mreNo);
+    const currentReports = await this.getAll();
+    const cached = googleSheetsService.getCachedMasterData();
 
-    if (error) throw error;
+    const cleanNo = mreNo.toUpperCase().trim();
+    const updatedReports = currentReports.filter(r => r.mre_no.toUpperCase() !== cleanNo);
+
+    googleSheetsService.setCachedMasterData({
+      jobs: cached?.jobs || [],
+      vehicles: cached?.vehicles || [],
+      workshops: cached?.workshops || [],
+      modelReports: updatedReports,
+    });
+
+    if (googleSheetsService.isConfigured()) {
+      googleSheetsService.syncAllDataToMasterSheet(
+        cached?.jobs || [],
+        cached?.vehicles || [],
+        cached?.workshops || [],
+        updatedReports
+      ).catch(e => console.warn('Background master sheet sync notice:', e));
+    }
   }
 };
-

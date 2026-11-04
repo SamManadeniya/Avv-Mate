@@ -28,15 +28,14 @@ import {
 } from './data/seedData';
 
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport } from './types';
-import { RefreshCw, Database, FileSpreadsheet, AlertTriangle, ExternalLink } from 'lucide-react';
+import { RefreshCw, FileSpreadsheet, AlertTriangle, ExternalLink } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('jobs');
   const [, setIsConnected] = useState(true);
   const [, setIsLoading] = useState(true);
-  const [dbSetupNeeded, setDbSetupNeeded] = useState(false);
 
-  // Google Sheets Master Database State (4 Tabs)
+  // Google Sheets Master Database State (5 Tabs)
   const [isSheetsPrimary, setIsSheetsPrimary] = useState(() => googleSheetsService.isSheetsPrimary());
   const [masterSheetUrl, setMasterSheetUrl] = useState<string>(() => googleSheetsService.getMasterSheetUrl());
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
@@ -80,193 +79,84 @@ export const App: React.FC = () => {
   } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Load All Data from Google Sheets or Supabase
+  // Load All Data from Google Sheets Master Database & Local Cache
   const loadData = useCallback(async () => {
     // 0. Instantly hydrate state from local cache so page refresh is instantaneous (0ms delay)
     const cached = googleSheetsService.getCachedMasterData();
     if (cached && (cached.jobs.length > 0 || cached.vehicles.length > 0 || cached.workshops.length > 0 || cached.modelReports.length > 0)) {
-      setComplianceJobs(cached.jobs);
-      setVehicles(cached.vehicles);
-      setWorkshops(cached.workshops);
-      setModelReports(cached.modelReports);
+      setComplianceJobs(cached.jobs.length > 0 ? cached.jobs : DEFAULT_COMPLIANCE_JOBS);
+      setVehicles(cached.vehicles.length > 0 ? cached.vehicles : DEFAULT_VEHICLES);
+      setWorkshops(cached.workshops.length > 0 ? cached.workshops : DEFAULT_RAW_WORKSHOPS);
+      setModelReports(cached.modelReports.length > 0 ? cached.modelReports : DEFAULT_MODEL_REPORTS);
       setIsConnected(true);
-      setDbSetupNeeded(false);
     }
 
     setIsLoading(true);
 
-    // 1. If Google Sheets is chosen as Primary Database:
-    if (googleSheetsService.isSheetsPrimary() && googleDriveService.isConfigured()) {
+    // 1. Read from Google Sheets Master Database
+    if (googleDriveService.isConfigured()) {
       try {
         const sheetData = await googleSheetsService.readAllFromMasterSheet();
-        const sheetTotal =
-          (sheetData?.jobs?.length || 0) +
-          (sheetData?.vehicles?.length || 0) +
-          (sheetData?.workshops?.length || 0) +
-          (sheetData?.modelReports?.length || 0);
+        const finalJobs = (sheetData.jobs && sheetData.jobs.length > 0)
+          ? sheetData.jobs
+          : (cached?.jobs && cached.jobs.length > 0 ? cached.jobs : DEFAULT_COMPLIANCE_JOBS);
 
-        if (sheetTotal > 0) {
-          setComplianceJobs(sheetData.jobs || []);
-          setVehicles(sheetData.vehicles || []);
-          setWorkshops(sheetData.workshops || []);
-          setModelReports(sheetData.modelReports || []);
-          setIsConnected(true);
-          setDbSetupNeeded(false);
-          setIsLoading(false);
-          return;
+        const finalVehicles = (sheetData.vehicles && sheetData.vehicles.length > 0)
+          ? sheetData.vehicles
+          : (cached?.vehicles && cached.vehicles.length > 0 ? cached.vehicles : DEFAULT_VEHICLES);
+
+        const finalWorkshops = (sheetData.workshops && sheetData.workshops.length > 0)
+          ? sheetData.workshops
+          : (cached?.workshops && cached.workshops.length > 0 ? cached.workshops : DEFAULT_RAW_WORKSHOPS);
+
+        const finalReports = (sheetData.modelReports && sheetData.modelReports.length > 0)
+          ? sheetData.modelReports
+          : (cached?.modelReports && cached.modelReports.length > 0 ? cached.modelReports : DEFAULT_MODEL_REPORTS);
+
+        setComplianceJobs(finalJobs);
+        setVehicles(finalVehicles);
+        setWorkshops(finalWorkshops);
+        setModelReports(finalReports);
+        setIsConnected(true);
+        setIsLoading(false);
+
+        // If any table in Google Sheets was empty, background sync to ensure all 5 tabs are written
+        if (
+          !sheetData.jobs || sheetData.jobs.length === 0 ||
+          !sheetData.vehicles || sheetData.vehicles.length === 0 ||
+          !sheetData.workshops || sheetData.workshops.length === 0 ||
+          !sheetData.modelReports || sheetData.modelReports.length === 0
+        ) {
+          googleSheetsService.syncAllDataToMasterSheet(finalJobs, finalVehicles, finalWorkshops, finalReports).catch(() => {});
         }
-        console.warn('Google Sheets returned 0 records. Checking Supabase or Seed Fallback...');
-      } catch (sheetErr) {
-        console.warn('Failed reading from Google Sheets Master DB, retaining cached data:', sheetErr);
-        if (cached && (cached.jobs.length > 0 || cached.vehicles.length > 0 || cached.workshops.length > 0 || cached.modelReports.length > 0)) {
-          setIsLoading(false);
-          return;
-        }
-      }
-    }
 
-    // 2. Query Supabase
-    try {
-      const [jobsData, vehiclesData, workshopsData, reportsData] = await Promise.allSettled([
-        complianceJobService.getAll(),
-        vehicleService.getAll(),
-        workshopService.getAll(),
-        modelReportService.getAll(),
-      ]);
-
-      let hasSuccess = false;
-      let hasTableMissingError = false;
-
-      let currentJobs: ComplianceJob[] = [];
-      let currentVehicles: Vehicle[] = [];
-      let currentWorkshops: RawWorkshop[] = [];
-      let currentReports: ModelReport[] = [];
-
-      if (jobsData.status === 'fulfilled' && jobsData.value.length > 0) {
-        currentJobs = jobsData.value;
-        setComplianceJobs(currentJobs);
-        hasSuccess = true;
-      } else if (jobsData.status === 'rejected' && jobsData.reason?.message?.includes('Could not find the table')) {
-        hasTableMissingError = true;
-      }
-
-      if (vehiclesData.status === 'fulfilled' && vehiclesData.value.length > 0) {
-        currentVehicles = vehiclesData.value;
-        setVehicles(currentVehicles);
-        hasSuccess = true;
-      } else if (vehiclesData.status === 'rejected' && vehiclesData.reason?.message?.includes('Could not find the table')) {
-        hasTableMissingError = true;
-      }
-
-      if (workshopsData.status === 'fulfilled' && workshopsData.value.length > 0) {
-        currentWorkshops = workshopsData.value;
-        setWorkshops(currentWorkshops);
-        hasSuccess = true;
-      }
-
-      if (reportsData.status === 'fulfilled' && reportsData.value.length > 0) {
-        currentReports = reportsData.value;
-        setModelReports(currentReports);
-        hasSuccess = true;
-      }
-
-      // If Supabase is offline/missing, fallback to Google Sheets Master Database!
-      if (!hasSuccess && googleDriveService.isConfigured()) {
-        try {
-          const sheetData = await googleSheetsService.readAllFromMasterSheet();
-          if (
-            sheetData.jobs.length > 0 ||
-            sheetData.vehicles.length > 0 ||
-            sheetData.workshops.length > 0 ||
-            sheetData.modelReports.length > 0
-          ) {
-            setComplianceJobs(sheetData.jobs);
-            setVehicles(sheetData.vehicles);
-            setWorkshops(sheetData.workshops);
-            setModelReports(sheetData.modelReports);
-            setIsConnected(true);
-            setDbSetupNeeded(false);
-            setIsLoading(false);
-            return;
-          }
-        } catch (_) {}
-      }
-
-      // 3. Fallback: If neither Supabase nor Google Sheets has records, hydrate DEFAULT_SEED_DATA!
-      const totalLoaded = currentJobs.length + currentVehicles.length + currentWorkshops.length + currentReports.length;
-      if (totalLoaded === 0) {
-        const cached = googleSheetsService.getCachedMasterData();
-        const cachedTotal =
-          (cached?.jobs?.length || 0) +
-          (cached?.vehicles?.length || 0) +
-          (cached?.workshops?.length || 0) +
-          (cached?.modelReports?.length || 0);
-
-        if (cachedTotal > 0 && cached) {
-          setComplianceJobs(cached.jobs);
-          setVehicles(cached.vehicles);
-          setWorkshops(cached.workshops);
-          setModelReports(cached.modelReports);
-        } else {
-          console.info('Auto-populating database with default seed records (9 Workshops, 25 Reports, Vehicles, Jobs)...');
-          setComplianceJobs(DEFAULT_COMPLIANCE_JOBS);
-          setVehicles(DEFAULT_VEHICLES);
-          setWorkshops(DEFAULT_RAW_WORKSHOPS);
-          setModelReports(DEFAULT_MODEL_REPORTS);
-          googleSheetsService.setCachedMasterData({
-            jobs: DEFAULT_COMPLIANCE_JOBS,
-            vehicles: DEFAULT_VEHICLES,
-            workshops: DEFAULT_RAW_WORKSHOPS,
-            modelReports: DEFAULT_MODEL_REPORTS,
-          });
-
-          // Automatically sync seed data into Google Sheets in the background so the Master Sheet is repopulated immediately!
-          if (googleDriveService.isConfigured()) {
-            googleSheetsService.syncAllDataToMasterSheet(
-              DEFAULT_COMPLIANCE_JOBS,
-              DEFAULT_VEHICLES,
-              DEFAULT_RAW_WORKSHOPS,
-              DEFAULT_MODEL_REPORTS
-            ).catch(e => console.warn('Auto-seed sync notice:', e));
-          }
-        }
-        hasSuccess = true;
-      }
-
-      // If Supabase loaded and Google Drive is connected, initialize master sheet URL in background
-      if (hasSuccess && googleDriveService.isConfigured()) {
         googleSheetsService.getMasterSpreadsheet().then(info => {
           setMasterSheetUrl(info.webViewLink);
         }).catch(() => {});
+        return;
+      } catch (sheetErr) {
+        console.warn('Failed reading from Google Sheets Master DB, using cached/seed fallback:', sheetErr);
       }
-
-      if (hasTableMissingError && !googleSheetsService.isSheetsPrimary()) {
-        setDbSetupNeeded(true);
-      } else {
-        setDbSetupNeeded(false);
-      }
-
-      setIsConnected(hasSuccess);
-    } catch (err) {
-      console.error('Failed to load data:', err);
-      if (googleDriveService.isConfigured()) {
-        try {
-          const sheetData = await googleSheetsService.readAllFromMasterSheet();
-          setComplianceJobs(sheetData.jobs);
-          setVehicles(sheetData.vehicles);
-          setWorkshops(sheetData.workshops);
-          setModelReports(sheetData.modelReports);
-          setIsConnected(true);
-          setDbSetupNeeded(false);
-        } catch (_) {
-          setIsConnected(false);
-        }
-      } else {
-        setIsConnected(false);
-      }
-    } finally {
-      setIsLoading(false);
     }
+
+    // 2. Fallback: If Drive is not configured or offline, hydrate from cache or DEFAULT_SEED_DATA
+    const fallbackJobs = cached?.jobs && cached.jobs.length > 0 ? cached.jobs : DEFAULT_COMPLIANCE_JOBS;
+    const fallbackVehicles = cached?.vehicles && cached.vehicles.length > 0 ? cached.vehicles : DEFAULT_VEHICLES;
+    const fallbackWorkshops = cached?.workshops && cached.workshops.length > 0 ? cached.workshops : DEFAULT_RAW_WORKSHOPS;
+    const fallbackReports = cached?.modelReports && cached.modelReports.length > 0 ? cached.modelReports : DEFAULT_MODEL_REPORTS;
+
+    setComplianceJobs(fallbackJobs);
+    setVehicles(fallbackVehicles);
+    setWorkshops(fallbackWorkshops);
+    setModelReports(fallbackReports);
+    googleSheetsService.setCachedMasterData({
+      jobs: fallbackJobs,
+      vehicles: fallbackVehicles,
+      workshops: fallbackWorkshops,
+      modelReports: fallbackReports,
+    });
+    setIsConnected(true);
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -881,35 +771,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Database Setup Alert Banner if tables need migration */}
-      {dbSetupNeeded && (
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-4 w-full">
-          <div className="p-4 bg-amber-50 border border-amber-300 rounded-lg flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <Database className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-sm font-bold text-amber-900">
-                  Supabase Schema Migration Ready
-                </h4>
-                <p className="text-xs text-amber-800 mt-1">
-                  The AVV database tables are ready to be created. Please run the generated{' '}
-                  <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono font-bold text-amber-900">
-                    supabase_setup.sql
-                  </code>{' '}
-                  script in your Supabase SQL Editor to initialize all 4 tables, storage buckets, and seed data.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={loadData}
-              className="flex items-center gap-1 px-3 py-1.5 bg-amber-200/80 hover:bg-amber-200 text-amber-900 text-xs font-semibold rounded transition shrink-0"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Retry Sync</span>
-            </button>
-          </div>
-        </div>
-      )}
+
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 w-full">

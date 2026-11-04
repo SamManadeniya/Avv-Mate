@@ -13,9 +13,8 @@ import {
   RotateCcw,
   Edit3
 } from 'lucide-react';
-import type { ComplianceJob, RawWorkshop, DocType, JobAttachment } from '../../types';
+import type { ComplianceJob, RawWorkshop } from '../../types';
 import { messagingService, type GeneratedTemplates } from '../../services/messagingService';
-import { attachmentService } from '../../services/attachmentService';
 
 interface RequestDocsModalProps {
   isOpen: boolean;
@@ -52,9 +51,7 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
   useEffect(() => {
     if (!isOpen || !job) return;
 
-    let isMounted = true;
-
-    // 1. Generate template immediately from current job state (contains live Master Sheet attachments)
+    // Generate template directly from current job attachments (always accurate)
     const initialT = messagingService.generateMissingDocsTemplate(job, matchedWorkshop);
     setTemplates(initialT);
     setCustomWhatsAppMessage(initialT.whatsappMessage);
@@ -62,43 +59,10 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
     setCustomEmailBody(initialT.emailBody);
     setIsEdited(false);
 
-    // 2. Only if Supabase has valid live attachments, merge them without wiping existing attachments
-    attachmentService.getByJobId(job.id).then((liveAttachments: Record<DocType, JobAttachment | null>) => {
-      if (!isMounted) return;
-      const hasValidLiveAtts = Object.values(liveAttachments || {}).some(a => Boolean(a && (a.file_url || a.file_name)));
-      if (hasValidLiveAtts) {
-        const mergedAttachments: Record<DocType, JobAttachment | null> = {
-          CRE: null, EC: null, CIN: null, WI: null,
-          DC: null, VI: null, RAW_DECLA: null, RECALL: null, PHOTOS: null,
-          ...(job.attachments || {}),
-        };
-        Object.entries(liveAttachments).forEach(([k, v]) => {
-          if (v && (v.file_url || v.file_name)) {
-            mergedAttachments[k as DocType] = v;
-          }
-        });
-        const jobWithLiveAtts: ComplianceJob = {
-          ...job,
-          attachments: mergedAttachments
-        };
-        const updatedT = messagingService.generateMissingDocsTemplate(jobWithLiveAtts, matchedWorkshop);
-        setTemplates(updatedT);
-        setCustomWhatsAppMessage(updatedT.whatsappMessage);
-        setCustomEmailSubject(updatedT.subject);
-        setCustomEmailBody(updatedT.emailBody);
-      }
-    }).catch((err: unknown) => {
-      console.warn('Failed to load live attachments for template, using current job state:', err);
-    });
-
     setRecipientPhone(matchedWorkshop?.contact_phone || '');
     setRecipientEmail(matchedWorkshop?.contact_email || '');
     setApiFeedback(null);
     setCopied(false);
-
-    return () => {
-      isMounted = false;
-    };
   }, [isOpen, job, matchedWorkshop]);
 
   if (!isOpen || !job || !templates) return null;
@@ -208,14 +172,14 @@ export const RequestDocsModal: React.FC<RequestDocsModalProps> = ({
                 Live Document Status For This Vehicle
               </span>
               <span className="text-xs font-semibold text-slate-600 font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
-                {templates.receivedDocs.length}/8 on file
+                {templates.receivedDocs.length}/9 on file
               </span>
             </div>
 
             {templates.missingDocs.length === 0 ? (
               <div className="text-xs text-emerald-700 font-semibold flex items-center gap-1.5 bg-emerald-50 p-2 rounded border border-emerald-200">
                 <Check className="w-4 h-4 text-emerald-600" />
-                <span>All 8 required compliance documents are verified and attached!</span>
+                <span>All 9 compliance documents are verified and attached!</span>
               </div>
             ) : (
               <div className="flex flex-wrap gap-1.5 mb-2">

@@ -1,5 +1,11 @@
 import { googleDriveService } from './googleDriveService';
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport } from '../types';
+import {
+  DEFAULT_COMPLIANCE_JOBS,
+  DEFAULT_VEHICLES,
+  DEFAULT_RAW_WORKSHOPS,
+  DEFAULT_MODEL_REPORTS
+} from '../data/seedData';
 
 export interface MasterSheetInfo {
   spreadsheetId: string;
@@ -84,10 +90,10 @@ class GoogleSheetsService {
   }
 
   /**
-   * Returns whether user has switched to Google Sheets as the primary database.
+   * Returns whether user is using Google Sheets as the primary database (default: TRUE).
    */
   public isSheetsPrimary(): boolean {
-    return localStorage.getItem(this.STORAGE_KEY_USE_SHEETS_PRIMARY) === 'true';
+    return localStorage.getItem(this.STORAGE_KEY_USE_SHEETS_PRIMARY) !== 'false';
   }
 
   /**
@@ -311,8 +317,14 @@ class GoogleSheetsService {
       };
     }
 
+    const cached = this.getCachedMasterData();
+    const finalJobs = (jobs && jobs.length > 0) ? jobs : (cached?.jobs && cached.jobs.length > 0 ? cached.jobs : DEFAULT_COMPLIANCE_JOBS);
+    const finalVehicles = (vehicles && vehicles.length > 0) ? vehicles : (cached?.vehicles && cached.vehicles.length > 0 ? cached.vehicles : DEFAULT_VEHICLES);
+    const finalWorkshops = (workshops && workshops.length > 0) ? workshops : (cached?.workshops && cached.workshops.length > 0 ? cached.workshops : DEFAULT_RAW_WORKSHOPS);
+    const finalReports = (modelReports && modelReports.length > 0) ? modelReports : (cached?.modelReports && cached.modelReports.length > 0 ? cached.modelReports : DEFAULT_MODEL_REPORTS);
+
     // Immediately persist snapshot into localStorage so refresh/reload never loses data
-    this.setCachedMasterData({ jobs, vehicles, workshops, modelReports });
+    this.setCachedMasterData({ jobs: finalJobs, vehicles: finalVehicles, workshops: finalWorkshops, modelReports: finalReports });
 
     let token = await googleDriveService.getValidToken();
 
@@ -332,10 +344,10 @@ class GoogleSheetsService {
       clientId: googleDriveService.getConfig().clientId,
       clientSecret: googleDriveService.getConfig().clientSecret,
       tablesData: {
-        jobs,
-        vehicles,
-        workshops,
-        modelReports,
+        jobs: finalJobs,
+        vehicles: finalVehicles,
+        workshops: finalWorkshops,
+        modelReports: finalReports,
       },
     };
 
@@ -461,36 +473,32 @@ class GoogleSheetsService {
       googleDriveService.saveConfig({ accessToken: resData.refreshedAccessToken });
     }
 
-    const liveData: MasterSheetTablesData = resData.data || {
-      jobs: [],
-      vehicles: [],
-      workshops: [],
-      modelReports: [],
+    const rawData = resData.data || {};
+    const finalJobs = (Array.isArray(rawData.jobs) && rawData.jobs.length > 0)
+      ? rawData.jobs
+      : (cachedData?.jobs && cachedData.jobs.length > 0 ? cachedData.jobs : DEFAULT_COMPLIANCE_JOBS);
+
+    const finalVehicles = (Array.isArray(rawData.vehicles) && rawData.vehicles.length > 0)
+      ? rawData.vehicles
+      : (cachedData?.vehicles && cachedData.vehicles.length > 0 ? cachedData.vehicles : DEFAULT_VEHICLES);
+
+    const finalWorkshops = (Array.isArray(rawData.workshops) && rawData.workshops.length > 0)
+      ? rawData.workshops
+      : (cachedData?.workshops && cachedData.workshops.length > 0 ? cachedData.workshops : DEFAULT_RAW_WORKSHOPS);
+
+    const finalReports = (Array.isArray(rawData.modelReports) && rawData.modelReports.length > 0)
+      ? rawData.modelReports
+      : (cachedData?.modelReports && cachedData.modelReports.length > 0 ? cachedData.modelReports : DEFAULT_MODEL_REPORTS);
+
+    const liveData: MasterSheetTablesData = {
+      jobs: finalJobs,
+      vehicles: finalVehicles,
+      workshops: finalWorkshops,
+      modelReports: finalReports,
     };
 
-    const liveTotal =
-      (liveData.jobs?.length || 0) +
-      (liveData.vehicles?.length || 0) +
-      (liveData.workshops?.length || 0) +
-      (liveData.modelReports?.length || 0);
-
-    // If Google Sheets returns 0 rows, check if we have a non-empty local cache
-    if (liveTotal === 0 && cachedData) {
-      const cachedTotal =
-        (cachedData.jobs?.length || 0) +
-        (cachedData.vehicles?.length || 0) +
-        (cachedData.workshops?.length || 0) +
-        (cachedData.modelReports?.length || 0);
-      if (cachedTotal > 0) {
-        console.warn('Google Sheets returned 0 records, retaining cached non-empty master data.');
-        return cachedData;
-      }
-    }
-
-    // Update persistent cache only when we have actual live data
-    if (liveTotal > 0) {
-      this.setCachedMasterData(liveData);
-    }
+    // Update persistent cache so subsequent refreshes are instantaneous
+    this.setCachedMasterData(liveData);
     return liveData;
   }
 

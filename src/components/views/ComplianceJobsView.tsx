@@ -226,21 +226,24 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                   >
                     {/* Folder # */}
                     <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                      {job.folder_url ? (
-                        <a
-                          href={job.folder_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={e => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 hover:underline"
-                          title="Open vehicle folder in Google Drive"
-                        >
-                          <span>{job.folder_no}</span>
-                          <ExternalLink className="w-3 h-3 text-sky-600" />
-                        </a>
-                      ) : (
-                        <span className="group-hover:text-sky-700">{job.folder_no}</span>
-                      )}
+                      {(() => {
+                        const targetUrl = (job.folder_url && job.folder_url.startsWith('https://drive.google.com/drive/folders/') && !job.folder_url.endsWith('12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5'))
+                          ? job.folder_url
+                          : `https://drive.google.com/drive/search?q=${encodeURIComponent(job.folder_no)}`;
+                        return (
+                          <a
+                            href={targetUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 hover:underline"
+                            title={`Open ${job.folder_no} vehicle folder on Google Drive`}
+                          >
+                            <span>{job.folder_no}</span>
+                            <ExternalLink className="w-3 h-3 text-sky-600" />
+                          </a>
+                        );
+                      })()}
                     </td>
 
                     {/* VIN */}
@@ -267,17 +270,24 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                       {formatDate(job.request_received)}
                     </td>
 
-                    {/* 8 Document Attachment slots */}
+                    {/* 9 Document Attachment slots */}
                     {REQUIRED_DOC_TYPES.map(doc => {
                       const att = job.attachments?.[doc.type];
+                      const safeDocUrl = (att?.file_url && att.file_url.startsWith('https://drive.google.com') && !att.file_url.endsWith('12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5'))
+                        ? att.file_url
+                        : (att?.file_url && !att.file_url.startsWith('blob:'))
+                          ? att.file_url
+                          : (doc.type === 'PHOTOS')
+                            ? `https://drive.google.com/drive/search?q=${encodeURIComponent(job.folder_no + ' PHOTOS')}`
+                            : `https://drive.google.com/drive/search?q=${encodeURIComponent(job.folder_no + ' ' + doc.type)}`;
                       return (
                         <td key={doc.type} className="py-2 px-1 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
                           {att ? (
                             <a
-                              href={att.file_url}
+                              href={safeDocUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              title={`${doc.name}: ${att.file_name} (Click to open)`}
+                              title={`${doc.name}: ${att.file_name} (Click to open on Google Drive)`}
                               className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-emerald-100 text-emerald-800 hover:bg-emerald-200 transition font-mono font-bold text-[10px]"
                             >
                               <Check className="w-3.5 h-3.5" />
@@ -299,17 +309,26 @@ export const ComplianceJobsView: React.FC<ComplianceJobsViewProps> = ({
                     <td className="py-2.5 px-3 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
                       {job.videos_url ? (
                         <a
-                          href={job.videos_url}
+                          href={job.videos_url.endsWith('12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5') ? `https://drive.google.com/drive/search?q=${encodeURIComponent(job.folder_no + ' VIDEOS')}` : job.videos_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          title="Open Google Drive Inspection Video"
+                          title={`Open ${job.folder_no} inspection videos on Google Drive`}
                           className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 px-2 py-0.5 rounded border border-sky-200 transition"
                         >
                           <Video className="w-3.5 h-3.5 text-sky-700" />
                           <span>Drive</span>
                         </a>
                       ) : (
-                        <span className="text-slate-300 font-mono">—</span>
+                        <a
+                          href={`https://drive.google.com/drive/search?q=${encodeURIComponent(job.folder_no + ' VIDEOS')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open ${job.folder_no} video folder on Google Drive`}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-sky-700 transition"
+                        >
+                          <Video className="w-3 h-3 text-slate-400" />
+                          <span className="text-[10px]">+</span>
+                        </a>
                       )}
                     </td>
 

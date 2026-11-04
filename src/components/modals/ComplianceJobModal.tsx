@@ -954,7 +954,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 {jobToEdit && Object.values(attachments).filter(Boolean).length < 9 && onRequestDocs && (
                   <button
                     type="button"
-                    onClick={() => onRequestDocs(jobToEdit)}
+                    onClick={() => onRequestDocs({ ...jobToEdit, attachments })}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition shadow-2xs"
                     title="Send dynamic request via WhatsApp or Email"
                   >

@@ -11,7 +11,6 @@ import {
   RefreshCw,
   LogOut,
   FolderCheck,
-  ShieldCheck,
   Zap,
   FileSpreadsheet,
   ExternalLink,
@@ -261,42 +260,18 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div
-                onClick={() => setStorageMode('google_drive')}
-                className={`p-3.5 rounded-lg border cursor-pointer transition flex items-start gap-3 ${
-                  storageMode === 'google_drive'
-                    ? 'border-emerald-500 bg-emerald-50/50 ring-1 ring-emerald-500'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
+                className="p-3.5 rounded-lg border border-emerald-500 bg-emerald-50/50 ring-1 ring-emerald-500 flex items-start gap-3"
               >
                 <div className="mt-0.5 p-1.5 rounded-md bg-emerald-100 text-emerald-700 shrink-0">
                   <HardDrive className="w-4 h-4" />
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-slate-900">Google Drive Storage</span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">Recommended</span>
+                    <span className="text-xs font-bold text-slate-900">Google Drive & Google Sheets Master DB</span>
+                    <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-1.5 py-0.2 rounded">Active & Primary</span>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                    Zero bandwidth caps. Handles 30–80+ photos per car, gigabyte inspection videos, and creates native folder trees automatically.
-                  </p>
-                </div>
-              </div>
-
-              <div
-                onClick={() => setStorageMode('supabase_only')}
-                className={`p-3.5 rounded-lg border cursor-pointer transition flex items-start gap-3 ${
-                  storageMode === 'supabase_only'
-                    ? 'border-sky-500 bg-sky-50/50 ring-1 ring-sky-500'
-                    : 'border-slate-200 bg-white hover:border-slate-300'
-                }`}
-              >
-                <div className="mt-0.5 p-1.5 rounded-md bg-sky-100 text-sky-700 shrink-0">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <span className="text-xs font-bold text-slate-900">Supabase Bucket Only</span>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                    Stores standard 7 PDFs in Supabase <code className="text-[10px] font-mono bg-slate-100 px-1 py-0.5 rounded">compliance-docs</code> bucket.
+                  <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                    Zero bandwidth caps. Handles 30–80+ photos per car, high-resolution inspection videos, and automatically keeps the 5-tab Master Spreadsheet (Compliance_Jobs, Vehicles, RAW_Workshops, Model_Reports, SVC) synchronized in real-time.
                   </p>
                 </div>
               </div>
@@ -304,7 +279,7 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
           </div>
 
           {/* Google Credentials Configuration */}
-          {storageMode !== 'supabase_only' && (
+          {(
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5 font-display">
@@ -604,17 +579,15 @@ export const GoogleDriveConfigModal: React.FC<GoogleDriveConfigModalProps> = ({
               Cancel
             </button>
 
-            {storageMode !== 'supabase_only' && (
-              <button
-                type="button"
-                onClick={handleTestConnection}
-                disabled={isTesting}
-                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-md transition flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
-                <span>{isTesting ? 'Testing…' : 'Test Connection'}</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleTestConnection}
+              disabled={isTesting}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-md transition flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
+              <span>{isTesting ? 'Testing…' : 'Test Connection'}</span>
+            </button>
 
             <button
               type="button"

@@ -1,160 +1,116 @@
-import { supabase } from '../lib/supabase';
 import type { Vehicle } from '../types';
+import { googleSheetsService } from './googleSheetsService';
+import { DEFAULT_VEHICLES } from '../data/seedData';
 
 export const vehicleService = {
   async getAll(): Promise<Vehicle[]> {
-    const { data, error } = await supabase
-      .from('vehicles')
-      .select(`
-        vin,
-        build_date,
-        via_no,
-        raw_id,
-        mre_no,
-        created_at,
-        updated_at,
-        raw_workshops ( name ),
-        model_reports ( make, model )
-      `)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    return (data || []).map((row: any) => ({
-      vin: row.vin,
-      build_date: row.build_date,
-      via_no: row.via_no,
-      raw_id: row.raw_id,
-      raw_workshop_name: row.raw_workshops?.name || null,
-      mre_no: row.mre_no,
-      make: row.model_reports?.make || null,
-      model: row.model_reports?.model || null,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
+    const cached = googleSheetsService.getCachedMasterData();
+    if (cached?.vehicles && cached.vehicles.length > 0) {
+      return cached.vehicles;
+    }
+    return DEFAULT_VEHICLES;
   },
 
   async getByVin(vin: string): Promise<Vehicle | null> {
-    const { data, error } = await supabase
-      .from('vehicles')
-      .select(`
-        vin,
-        build_date,
-        via_no,
-        raw_id,
-        mre_no,
-        created_at,
-        updated_at,
-        raw_workshops ( name ),
-        model_reports ( make, model )
-      `)
-      .eq('vin', vin.toUpperCase().trim())
-      .maybeSingle();
-
-    if (error) throw error;
-    if (!data) return null;
-
-    const row: any = data;
-    return {
-      vin: row.vin,
-      build_date: row.build_date,
-      via_no: row.via_no,
-      raw_id: row.raw_id,
-      raw_workshop_name: row.raw_workshops?.name || null,
-      mre_no: row.mre_no,
-      make: row.model_reports?.make || null,
-      model: row.model_reports?.model || null,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    };
+    const vehicles = await this.getAll();
+    const cleanVin = vin.toUpperCase().trim();
+    return vehicles.find(v => v.vin.toUpperCase() === cleanVin) || null;
   },
 
   async create(vehicle: Vehicle): Promise<Vehicle> {
-    const cleanVin = vehicle.vin.toUpperCase().replace(/\s/g, '');
-    const { data, error } = await supabase
-      .from('vehicles')
-      .insert([{
-        vin: cleanVin,
-        build_date: vehicle.build_date.trim(),
-        via_no: vehicle.via_no?.trim() || null,
-        raw_id: vehicle.raw_id || null,
-        mre_no: vehicle.mre_no || null,
-      }])
-      .select(`
-        vin,
-        build_date,
-        via_no,
-        raw_id,
-        mre_no,
-        created_at,
-        updated_at,
-        raw_workshops ( name ),
-        model_reports ( make, model )
-      `)
-      .single();
+    const currentVehicles = await this.getAll();
+    const cached = googleSheetsService.getCachedMasterData();
 
-    if (error) throw error;
-    const row: any = data;
-    return {
-      vin: row.vin,
-      build_date: row.build_date,
-      via_no: row.via_no,
-      raw_id: row.raw_id,
-      raw_workshop_name: row.raw_workshops?.name || null,
-      mre_no: row.mre_no,
-      make: row.model_reports?.make || null,
-      model: row.model_reports?.model || null,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
+    const cleanVin = vehicle.vin.toUpperCase().trim();
+    const newVehicle: Vehicle = {
+      ...vehicle,
+      vin: cleanVin,
+      created_at: vehicle.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
+
+    const updatedVehicles = [newVehicle, ...currentVehicles.filter(v => v.vin.toUpperCase() !== cleanVin)];
+
+    googleSheetsService.setCachedMasterData({
+      jobs: cached?.jobs || [],
+      vehicles: updatedVehicles,
+      workshops: cached?.workshops || [],
+      modelReports: cached?.modelReports || [],
+    });
+
+    if (googleSheetsService.isConfigured()) {
+      googleSheetsService.syncAllDataToMasterSheet(
+        cached?.jobs || [],
+        updatedVehicles,
+        cached?.workshops || [],
+        cached?.modelReports || []
+      ).catch(e => console.warn('Background master sheet sync notice:', e));
+    }
+
+    return newVehicle;
   },
 
   async update(vin: string, updates: Partial<Vehicle>): Promise<Vehicle> {
-    const { data, error } = await supabase
-      .from('vehicles')
-      .update({
-        build_date: updates.build_date?.trim(),
-        via_no: updates.via_no?.trim() || null,
-        raw_id: updates.raw_id || null,
-        mre_no: updates.mre_no || null,
-      })
-      .eq('vin', vin)
-      .select(`
-        vin,
-        build_date,
-        via_no,
-        raw_id,
-        mre_no,
-        created_at,
-        updated_at,
-        raw_workshops ( name ),
-        model_reports ( make, model )
-      `)
-      .single();
+    const currentVehicles = await this.getAll();
+    const cached = googleSheetsService.getCachedMasterData();
 
-    if (error) throw error;
-    const row: any = data;
-    return {
-      vin: row.vin,
-      build_date: row.build_date,
-      via_no: row.via_no,
-      raw_id: row.raw_id,
-      raw_workshop_name: row.raw_workshops?.name || null,
-      mre_no: row.mre_no,
-      make: row.model_reports?.make || null,
-      model: row.model_reports?.model || null,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
+    const cleanVin = vin.toUpperCase().trim();
+    const idx = currentVehicles.findIndex(v => v.vin.toUpperCase() === cleanVin);
+    if (idx === -1) {
+      throw new Error(`Vehicle with VIN ${vin} not found.`);
+    }
+
+    const existing = currentVehicles[idx];
+    const updatedVehicle: Vehicle = {
+      ...existing,
+      ...updates,
+      vin: cleanVin,
+      updated_at: new Date().toISOString(),
     };
+
+    const updatedVehicles = [...currentVehicles];
+    updatedVehicles[idx] = updatedVehicle;
+
+    googleSheetsService.setCachedMasterData({
+      jobs: cached?.jobs || [],
+      vehicles: updatedVehicles,
+      workshops: cached?.workshops || [],
+      modelReports: cached?.modelReports || [],
+    });
+
+    if (googleSheetsService.isConfigured()) {
+      googleSheetsService.syncAllDataToMasterSheet(
+        cached?.jobs || [],
+        updatedVehicles,
+        cached?.workshops || [],
+        cached?.modelReports || []
+      ).catch(e => console.warn('Background master sheet sync notice:', e));
+    }
+
+    return updatedVehicle;
   },
 
   async delete(vin: string): Promise<void> {
-    const { error } = await supabase
-      .from('vehicles')
-      .delete()
-      .eq('vin', vin);
+    const currentVehicles = await this.getAll();
+    const cached = googleSheetsService.getCachedMasterData();
 
-    if (error) throw error;
+    const cleanVin = vin.toUpperCase().trim();
+    const updatedVehicles = currentVehicles.filter(v => v.vin.toUpperCase() !== cleanVin);
+
+    googleSheetsService.setCachedMasterData({
+      jobs: cached?.jobs || [],
+      vehicles: updatedVehicles,
+      workshops: cached?.workshops || [],
+      modelReports: cached?.modelReports || [],
+    });
+
+    if (googleSheetsService.isConfigured()) {
+      googleSheetsService.syncAllDataToMasterSheet(
+        cached?.jobs || [],
+        updatedVehicles,
+        cached?.workshops || [],
+        cached?.modelReports || []
+      ).catch(e => console.warn('Background master sheet sync notice:', e));
+    }
   }
 };
-
