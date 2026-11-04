@@ -20,6 +20,40 @@ class GoogleSheetsService {
   private readonly STORAGE_KEY_ID = 'avv_mate_master_sheet_id';
   private readonly STORAGE_KEY_URL = 'avv_mate_master_sheet_url';
   private readonly STORAGE_KEY_USE_SHEETS_PRIMARY = 'avv_mate_use_sheets_primary_db';
+  private readonly STORAGE_KEY_MASTER_CACHE = 'avv_mate_master_cache';
+
+  /**
+   * Retrieves offline cached data so page refreshes are instant (0ms delay).
+   */
+  public getCachedMasterData(): MasterSheetTablesData | null {
+    try {
+      const raw = localStorage.getItem(this.STORAGE_KEY_MASTER_CACHE);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && (Array.isArray(parsed.jobs) || Array.isArray(parsed.vehicles) || Array.isArray(parsed.workshops) || Array.isArray(parsed.modelReports))) {
+          return {
+            jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
+            vehicles: Array.isArray(parsed.vehicles) ? parsed.vehicles : [],
+            workshops: Array.isArray(parsed.workshops) ? parsed.workshops : [],
+            modelReports: Array.isArray(parsed.modelReports) ? parsed.modelReports : [],
+          };
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /**
+   * Persists master database snapshot into localStorage for zero-latency hydration.
+   */
+  public setCachedMasterData(data: MasterSheetTablesData): void {
+    try {
+      localStorage.setItem(this.STORAGE_KEY_MASTER_CACHE, JSON.stringify(data));
+      localStorage.setItem('avv_mate_master_cache_time', Date.now().toString());
+    } catch (e) {
+      console.warn('Failed to cache master sheet data:', e);
+    }
+  }
 
   /**
    * Returns whether Google Drive / Sheets credentials are configured.
@@ -68,16 +102,21 @@ class GoogleSheetsService {
       return this.sheetInfoCache;
     }
 
-    // Auto-refresh token if expired
-    if (googleDriveService.isConfigured() && !googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
-      try {
-        await googleDriveService.requestOAuthToken();
-      } catch (authErr) {
-        console.warn('OAuth refresh before master spreadsheet:', authErr);
+    let token = '';
+    try {
+      token = await googleDriveService.getValidToken();
+    } catch (authErr) {
+      console.warn('Could not acquire valid OAuth token for master spreadsheet:', authErr);
+      if (cachedId && cachedUrl) {
+        return {
+          spreadsheetId: cachedId,
+          title: 'AVV Mate Master Database',
+          webViewLink: cachedUrl,
+        };
       }
+      throw authErr;
     }
 
-    const token = googleDriveService.getConfig().accessToken;
     const parentFolderId = googleDriveService.getConfig().rootFolderId || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
 
     if (!token) {
@@ -93,11 +132,17 @@ class GoogleSheetsService {
           parentFolderId,
           spreadsheetTitle: 'AVV Mate Master Database',
           accessToken: token,
+          refreshToken: googleDriveService.getConfig().refreshToken,
+          clientId: googleDriveService.getConfig().clientId,
+          clientSecret: googleDriveService.getConfig().clientSecret,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
+        if (data.refreshedAccessToken) {
+          googleDriveService.saveConfig({ accessToken: data.refreshedAccessToken });
+        }
         if (data.spreadsheetId) {
           const info: MasterSheetInfo = {
             spreadsheetId: data.spreadsheetId,
@@ -218,6 +263,7 @@ class GoogleSheetsService {
 
   /**
    * Syncs all 4 tables into the 4 tabs of the Master Spreadsheet.
+   * Auto-refreshes token, handles 401 transparently, and caches data locally.
    */
   public async syncAllDataToMasterSheet(
     jobs: ComplianceJob[],
@@ -225,8 +271,11 @@ class GoogleSheetsService {
     workshops: RawWorkshop[],
     modelReports: ModelReport[]
   ): Promise<{ success: boolean; spreadsheetUrl: string; syncedTabs: string[] }> {
+    // 1. Immediately persist snapshot into localStorage so refresh/reload never loses data
+    this.setCachedMasterData({ jobs, vehicles, workshops, modelReports });
+
     const sheet = await this.getMasterSpreadsheet();
-    const token = googleDriveService.getConfig().accessToken;
+    let token = await googleDriveService.getValidToken();
 
     if (!token || sheet.spreadsheetId.startsWith('demo_')) {
       return {
@@ -236,24 +285,49 @@ class GoogleSheetsService {
       };
     }
 
-    const res = await fetch('/api/drive-sync', {
+    const payload = {
+      action: 'syncMasterSpreadsheet',
+      spreadsheetId: sheet.spreadsheetId,
+      accessToken: token,
+      refreshToken: googleDriveService.getConfig().refreshToken,
+      clientId: googleDriveService.getConfig().clientId,
+      clientSecret: googleDriveService.getConfig().clientSecret,
+      tablesData: {
+        jobs,
+        vehicles,
+        workshops,
+        modelReports,
+      },
+    };
+
+    let res = await fetch('/api/drive-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'syncMasterSpreadsheet',
-        spreadsheetId: sheet.spreadsheetId,
-        accessToken: token,
-        tablesData: {
-          jobs,
-          vehicles,
-          workshops,
-          modelReports,
-        },
-      }),
+      body: JSON.stringify(payload),
     });
+
+    // If 401 UNAUTHENTICATED, try forcing a fresh token and retry once
+    if (res.status === 401) {
+      try {
+        const freshToken = await googleDriveService.getValidToken(true);
+        if (freshToken) {
+          payload.accessToken = freshToken;
+          res = await fetch('/api/drive-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        }
+      } catch (retryErr) {
+        console.warn('Re-auth retry on 401 failed:', retryErr);
+      }
+    }
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
+      if (res.status === 401 || errJson.authExpired) {
+        window.dispatchEvent(new CustomEvent('avv_mate_auth_expired'));
+      }
       const err: any = new Error(errJson.error || `Failed to sync tables to Google Sheets (${res.status})`);
       if (errJson.enableApiUrl || errJson.apiDisabled || (err.message && err.message.includes('sheets.googleapis.com'))) {
         err.enableApiUrl = errJson.enableApiUrl || 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136';
@@ -262,6 +336,10 @@ class GoogleSheetsService {
     }
 
     const data = await res.json();
+    if (data.refreshedAccessToken) {
+      googleDriveService.saveConfig({ accessToken: data.refreshedAccessToken });
+    }
+
     return {
       success: true,
       spreadsheetUrl: data.spreadsheetUrl || sheet.webViewLink,
@@ -271,32 +349,67 @@ class GoogleSheetsService {
 
   /**
    * Reads all 4 tables directly from the Master Google Spreadsheet.
+   * Leverages local cache for instant refresh and silently recovers from 401.
    */
   public async readAllFromMasterSheet(): Promise<MasterSheetTablesData> {
-    const sheet = await this.getMasterSpreadsheet();
-    const token = googleDriveService.getConfig().accessToken;
+    const cachedData = this.getCachedMasterData();
 
-    if (!token || sheet.spreadsheetId.startsWith('demo_')) {
-      return {
-        jobs: [],
-        vehicles: [],
-        workshops: [],
-        modelReports: [],
-      };
+    let sheet: MasterSheetInfo | null = null;
+    let token = '';
+    try {
+      sheet = await this.getMasterSpreadsheet();
+      token = await googleDriveService.getValidToken();
+    } catch (initErr) {
+      console.warn('Could not prepare auth for reading Master Sheet:', initErr);
+      if (cachedData) {
+        return cachedData;
+      }
+      return { jobs: [], vehicles: [], workshops: [], modelReports: [] };
     }
 
-    const res = await fetch('/api/drive-sync', {
+    if (!token || !sheet || sheet.spreadsheetId.startsWith('demo_')) {
+      return cachedData || { jobs: [], vehicles: [], workshops: [], modelReports: [] };
+    }
+
+    const payload = {
+      action: 'readMasterSpreadsheet',
+      spreadsheetId: sheet.spreadsheetId,
+      accessToken: token,
+      refreshToken: googleDriveService.getConfig().refreshToken,
+      clientId: googleDriveService.getConfig().clientId,
+      clientSecret: googleDriveService.getConfig().clientSecret,
+    };
+
+    let res = await fetch('/api/drive-sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'readMasterSpreadsheet',
-        spreadsheetId: sheet.spreadsheetId,
-        accessToken: token,
-      }),
+      body: JSON.stringify(payload),
     });
+
+    // If 401, attempt force token renewal and retry once
+    if (res.status === 401) {
+      try {
+        const freshToken = await googleDriveService.getValidToken(true);
+        if (freshToken) {
+          payload.accessToken = freshToken;
+          res = await fetch('/api/drive-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        }
+      } catch (_) {}
+    }
 
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
+      if (res.status === 401 || errJson.authExpired) {
+        window.dispatchEvent(new CustomEvent('avv_mate_auth_expired'));
+      }
+      // If we have cached data, return it immediately so page refresh never looks broken!
+      if (cachedData) {
+        return cachedData;
+      }
       const err: any = new Error(errJson.error || `Failed to read tables from Google Sheets (${res.status})`);
       if (errJson.enableApiUrl || errJson.apiDisabled || (err.message && err.message.includes('sheets.googleapis.com'))) {
         err.enableApiUrl = errJson.enableApiUrl || 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136';
@@ -305,12 +418,20 @@ class GoogleSheetsService {
     }
 
     const resData = await res.json();
-    return resData.data || {
+    if (resData.refreshedAccessToken) {
+      googleDriveService.saveConfig({ accessToken: resData.refreshedAccessToken });
+    }
+
+    const liveData: MasterSheetTablesData = resData.data || {
       jobs: [],
       vehicles: [],
       workshops: [],
       modelReports: [],
     };
+
+    // Update persistent cache with freshly fetched live data
+    this.setCachedMasterData(liveData);
+    return liveData;
   }
 
   /**

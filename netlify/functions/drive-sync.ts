@@ -4,7 +4,7 @@
  */
 
 interface RequestBody {
-  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile' | 'initiateResumableUpload' | 'listFiles' | 'getOrCreateMasterSpreadsheet' | 'syncMasterSpreadsheet' | 'readMasterSpreadsheet';
+  action: 'ensureVehicleFolderHierarchy' | 'testConnection' | 'syncFilesFromUrls' | 'organizeVehicleFolders' | 'uploadFile' | 'initiateResumableUpload' | 'listFiles' | 'getOrCreateMasterSpreadsheet' | 'syncMasterSpreadsheet' | 'readMasterSpreadsheet' | 'refreshAccessToken' | 'exchangeAuthCode';
   folderNo?: string;
   parentFolderId?: string;
   folderId?: string;
@@ -37,6 +37,11 @@ interface RequestBody {
     docType?: string;
   }>;
   accessToken?: string;
+  refreshToken?: string;
+  code?: string;
+  redirectUri?: string;
+  clientId?: string;
+  clientSecret?: string;
 }
 
 const isImageFileServer = (name: string, mime?: string) => {
@@ -343,14 +348,134 @@ export const handler = async (event: any) => {
 
   try {
     const payload: RequestBody = JSON.parse(event.body || '{}');
+
+    // 0. Refresh OAuth Access Token via permanent Refresh Token
+    if (payload.action === 'refreshAccessToken') {
+      const refreshToken = payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+      const clientId = payload.clientId || process.env.GOOGLE_DRIVE_CLIENT_ID || '43512054136-hm8pg6tue7uajtb11i4nqmpndng6ik05.apps.googleusercontent.com';
+      const clientSecret = payload.clientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || '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';
+
+      if (!refreshToken) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'refreshToken is required for token renewal' }),
+        };
+      }
+
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }).toString(),
+      });
+
+      const tokenData = await tokenRes.json();
+      if (!tokenRes.ok) {
+        return {
+          statusCode: tokenRes.status,
+          headers,
+          body: JSON.stringify({ error: tokenData.error_description || tokenData.error || 'Failed to refresh token', details: tokenData }),
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          accessToken: tokenData.access_token,
+          expiresIn: tokenData.expires_in,
+        }),
+      };
+    }
+
+    // 0.1. Exchange OAuth Authorization Code for Access Token + Permanent Refresh Token
+    if (payload.action === 'exchangeAuthCode') {
+      const code = payload.code;
+      const redirectUri = payload.redirectUri || 'https://avvmate.netlify.app';
+      const clientId = payload.clientId || process.env.GOOGLE_DRIVE_CLIENT_ID || '43512054136-hm8pg6tue7uajtb11i4nqmpndng6ik05.apps.googleusercontent.com';
+      const clientSecret = payload.clientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || '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';
+
+      if (!code) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Authorization code is required' }),
+        };
+      }
+
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }).toString(),
+      });
+
+      const tokenData = await tokenRes.json();
+      if (!tokenRes.ok) {
+        return {
+          statusCode: tokenRes.status,
+          headers,
+          body: JSON.stringify({ error: tokenData.error_description || tokenData.error || 'Failed to exchange auth code', details: tokenData }),
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          accessToken: tokenData.access_token,
+          refreshToken: tokenData.refresh_token,
+          expiresIn: tokenData.expires_in,
+        }),
+      };
+    }
+
     const authHeader = event.headers.authorization || event.headers.Authorization || '';
-    const token = payload.accessToken || (authHeader.startsWith('Bearer ') ? authHeader.substring(7) : '');
+    let token = payload.accessToken || (authHeader.startsWith('Bearer ') ? authHeader.substring(7) : '');
+
+    // If token is missing, attempt auto-refresh using refreshToken
+    if (!token && (payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN)) {
+      try {
+        const refreshToken = payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+        const clientId = payload.clientId || process.env.GOOGLE_DRIVE_CLIENT_ID || '43512054136-hm8pg6tue7uajtb11i4nqmpndng6ik05.apps.googleusercontent.com';
+        const clientSecret = payload.clientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || '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';
+
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken!,
+            grant_type: 'refresh_token',
+          }).toString(),
+        });
+        if (tokenRes.ok) {
+          const tData = await tokenRes.json();
+          if (tData.access_token) {
+            token = tData.access_token;
+          }
+        }
+      } catch (_) {}
+    }
 
     if (!token) {
       return {
         statusCode: 401,
         headers,
-        body: JSON.stringify({ error: 'Google Drive access token is required.' }),
+        body: JSON.stringify({ error: 'Google Drive access token is required.', authExpired: true }),
       };
     }
 
@@ -1106,8 +1231,10 @@ export const handler = async (event: any) => {
         updateData.push({ range: 'Model_Reports!A1:L', values: reportRows });
       }
 
+      let refreshedTokenToReturn: string | null = null;
+
       if (updateData.length > 0) {
-        const writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+        let writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1115,6 +1242,42 @@ export const handler = async (event: any) => {
             data: updateData,
           }),
         });
+
+        // If 401 UNAUTHENTICATED, attempt server-side token refresh via refreshToken
+        if (writeRes.status === 401 && (payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN)) {
+          const rToken = payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+          const clientId = payload.clientId || process.env.GOOGLE_DRIVE_CLIENT_ID || '43512054136-hm8pg6tue7uajtb11i4nqmpndng6ik05.apps.googleusercontent.com';
+          const clientSecret = payload.clientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || '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';
+
+          try {
+            const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                client_id: clientId,
+                client_secret: clientSecret,
+                refresh_token: rToken!,
+                grant_type: 'refresh_token',
+              }).toString(),
+            });
+            if (tokenRes.ok) {
+              const tData = await tokenRes.json();
+              if (tData.access_token) {
+                token = tData.access_token;
+                refreshedTokenToReturn = token;
+                // Retry write with fresh token
+                writeRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    valueInputOption: 'USER_ENTERED',
+                    data: updateData,
+                  }),
+                });
+              }
+            }
+          } catch (_) {}
+        }
 
         if (!writeRes.ok) {
           const errText = await writeRes.text();
@@ -1129,6 +1292,16 @@ export const handler = async (event: any) => {
               }),
             };
           }
+          if (writeRes.status === 401 || errText.includes('UNAUTHENTICATED') || errText.includes('invalid authentication credentials')) {
+            return {
+              statusCode: 401,
+              headers,
+              body: JSON.stringify({
+                error: 'Google session expired. Please reconnect your Google account.',
+                authExpired: true,
+              }),
+            };
+          }
           return { statusCode: writeRes.status, headers, body: JSON.stringify({ error: `Failed to write sheet values: ${errText}` }) };
         }
       }
@@ -1140,6 +1313,7 @@ export const handler = async (event: any) => {
           success: true,
           syncedTabs: updateData.map(d => d.range.split('!')[0]),
           spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+          refreshedAccessToken: refreshedTokenToReturn,
         }),
       };
     }
@@ -1150,8 +1324,38 @@ export const handler = async (event: any) => {
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'spreadsheetId is required' }) };
       }
 
+      let refreshedTokenToReturn: string | null = null;
       const readUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=Compliance_Jobs!A1:AA&ranges=Vehicles!A1:J&ranges=RAW_Workshops!A1:G&ranges=Model_Reports!A1:L`;
-      const readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
+      let readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
+
+      // If 401 UNAUTHENTICATED, attempt server-side token refresh via refreshToken
+      if (readRes.status === 401 && (payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN)) {
+        const rToken = payload.refreshToken || process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+        const clientId = payload.clientId || process.env.GOOGLE_DRIVE_CLIENT_ID || '43512054136-hm8pg6tue7uajtb11i4nqmpndng6ik05.apps.googleusercontent.com';
+        const clientSecret = payload.clientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || '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';
+
+        try {
+          const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              client_id: clientId,
+              client_secret: clientSecret,
+              refresh_token: rToken!,
+              grant_type: 'refresh_token',
+            }).toString(),
+          });
+          if (tokenRes.ok) {
+            const tData = await tokenRes.json();
+            if (tData.access_token) {
+              token = tData.access_token;
+              refreshedTokenToReturn = token;
+              readRes = await fetch(readUrl, { headers: { Authorization: `Bearer ${token}` } });
+            }
+          }
+        } catch (_) {}
+      }
+
       if (!readRes.ok) {
         const errText = await readRes.text();
         if (errText.includes('SERVICE_DISABLED') || errText.includes('Google Sheets API has not been used') || errText.includes('sheets.googleapis.com')) {
@@ -1162,6 +1366,16 @@ export const handler = async (event: any) => {
               error: 'Google Sheets API is disabled for Google Cloud Project 43512054136. Please enable it in Google Cloud Console.',
               enableApiUrl: 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=43512054136',
               apiDisabled: true,
+            }),
+          };
+        }
+        if (readRes.status === 401 || errText.includes('UNAUTHENTICATED') || errText.includes('invalid authentication credentials')) {
+          return {
+            statusCode: 401,
+            headers,
+            body: JSON.stringify({
+              error: 'Google session expired. Please reconnect your Google account.',
+              authExpired: true,
             }),
           };
         }
@@ -1360,6 +1574,7 @@ export const handler = async (event: any) => {
         headers,
         body: JSON.stringify({
           success: true,
+          refreshedAccessToken: refreshedTokenToReturn,
           data: {
             jobs,
             vehicles,

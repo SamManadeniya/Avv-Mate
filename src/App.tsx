@@ -63,22 +63,7 @@ export const App: React.FC = () => {
   // Google Drive Config Modal State
   const [isDriveConfigOpen, setIsDriveConfigOpen] = useState(false);
   const [isDriveConnected, setIsDriveConnected] = useState(() => googleDriveService.isConfigured());
-
-  useEffect(() => {
-    // Check if Google redirected back with auth token
-    const tokenParsed = googleDriveService.parseAuthCallbackFromUrl();
-    if (tokenParsed) {
-      setIsDriveConnected(true);
-    }
-
-    const handleConfigChange = () => {
-      setIsDriveConnected(googleDriveService.isConfigured());
-    };
-    window.addEventListener('avv_mate_drive_config_updated', handleConfigChange);
-    return () => {
-      window.removeEventListener('avv_mate_drive_config_updated', handleConfigChange);
-    };
-  }, []);
+  const [isAuthExpired, setIsAuthExpired] = useState(false);
 
   // Delete State
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -91,22 +76,39 @@ export const App: React.FC = () => {
 
   // Load All Data from Google Sheets or Supabase
   const loadData = useCallback(async () => {
+    // 0. Instantly hydrate state from local cache so page refresh is instantaneous (0ms delay)
+    const cached = googleSheetsService.getCachedMasterData();
+    if (cached && (cached.jobs.length > 0 || cached.vehicles.length > 0 || cached.workshops.length > 0 || cached.modelReports.length > 0)) {
+      setComplianceJobs(cached.jobs);
+      setVehicles(cached.vehicles);
+      setWorkshops(cached.workshops);
+      setModelReports(cached.modelReports);
+      setIsConnected(true);
+      setDbSetupNeeded(false);
+    }
+
     setIsLoading(true);
 
     // 1. If Google Sheets is chosen as Primary Database:
     if (googleSheetsService.isSheetsPrimary() && googleDriveService.isConfigured()) {
       try {
         const sheetData = await googleSheetsService.readAllFromMasterSheet();
-        setComplianceJobs(sheetData.jobs || []);
-        setVehicles(sheetData.vehicles || []);
-        setWorkshops(sheetData.workshops || []);
-        setModelReports(sheetData.modelReports || []);
-        setIsConnected(true);
-        setDbSetupNeeded(false);
+        if (sheetData) {
+          setComplianceJobs(sheetData.jobs || []);
+          setVehicles(sheetData.vehicles || []);
+          setWorkshops(sheetData.workshops || []);
+          setModelReports(sheetData.modelReports || []);
+          setIsConnected(true);
+          setDbSetupNeeded(false);
+        }
         setIsLoading(false);
         return;
       } catch (sheetErr) {
-        console.warn('Failed reading from Google Sheets Master DB, checking fallback:', sheetErr);
+        console.warn('Failed reading from Google Sheets Master DB, retaining cached data:', sheetErr);
+        if (cached && (cached.jobs.length > 0 || cached.vehicles.length > 0 || cached.workshops.length > 0 || cached.modelReports.length > 0)) {
+          setIsLoading(false);
+          return;
+        }
       }
     }
 
@@ -214,13 +216,41 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Check if Google redirected back with auth token or authorization code
+    googleDriveService.parseAuthCallbackFromUrl().then((tokenParsed) => {
+      if (tokenParsed) {
+        setIsDriveConnected(true);
+        setIsAuthExpired(false);
+        loadData();
+      }
+    });
+
     loadData();
+
+    const handleConfigChange = () => {
+      setIsDriveConnected(googleDriveService.isConfigured());
+    };
+    const handleAuthExpired = () => setIsAuthExpired(true);
+    const handleAuthRestored = () => {
+      setIsAuthExpired(false);
+      loadData();
+    };
     const handleDbModeChange = () => {
       setIsSheetsPrimary(googleSheetsService.isSheetsPrimary());
       loadData();
     };
+
+    window.addEventListener('avv_mate_drive_config_updated', handleConfigChange);
+    window.addEventListener('avv_mate_auth_expired', handleAuthExpired);
+    window.addEventListener('avv_mate_auth_restored', handleAuthRestored);
     window.addEventListener('avv_mate_db_mode_changed', handleDbModeChange);
-    return () => window.removeEventListener('avv_mate_db_mode_changed', handleDbModeChange);
+
+    return () => {
+      window.removeEventListener('avv_mate_drive_config_updated', handleConfigChange);
+      window.removeEventListener('avv_mate_auth_expired', handleAuthExpired);
+      window.removeEventListener('avv_mate_auth_restored', handleAuthRestored);
+      window.removeEventListener('avv_mate_db_mode_changed', handleDbModeChange);
+    };
   }, [loadData]);
 
   // Handlers for Compliance Jobs
@@ -632,6 +662,51 @@ export const App: React.FC = () => {
         }}
         isDriveConnected={isDriveConnected}
       />
+
+      {/* Google Session Expired / Reconnect Banner */}
+      {isAuthExpired && (
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 mt-4 w-full animate-in fade-in">
+          <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-100 rounded-lg text-amber-800 shrink-0 mt-0.5">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-amber-950 flex items-center gap-2">
+                  <span>Google Authentication Session Expired</span>
+                  <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-semibold">Offline Safe</span>
+                </h4>
+                <p className="text-xs text-amber-900 mt-1 leading-relaxed">
+                  Your Google OAuth session has expired. All records are currently saved safely in your local browser cache. Click below to reconnect Google Drive & Sheets to resume real-time sync.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+              <button
+                onClick={async () => {
+                  try {
+                    await googleDriveService.requestOAuthToken();
+                    setIsAuthExpired(false);
+                    loadData();
+                  } catch (e: any) {
+                    window.location.href = googleDriveService.getDirectAuthUrl();
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-sm transition"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reconnect Google Drive</span>
+              </button>
+              <button
+                onClick={() => setIsAuthExpired(false)}
+                className="px-3 py-2 text-xs font-semibold text-amber-900 hover:text-amber-950"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Google Sheets API Enablement Action Banner */}
       {sheetsApiDisabledUrl && (

@@ -13,8 +13,10 @@
 export interface GoogleDriveConfig {
   enabled: boolean;
   clientId: string;
+  clientSecret?: string;
   apiKey?: string;
   accessToken?: string;
+  refreshToken?: string;
   tokenExpiresAt?: number;
   rootFolderId?: string; // Optional parent folder ID (e.g. "Shared with me" or dedicated Drive folder)
   rootFolderName?: string;
@@ -103,18 +105,23 @@ class GoogleDriveService {
   }
 
   public loadConfig(): GoogleDriveConfig {
-    const envClientId = (import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID || '').trim();
+    const envClientId = (import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID || '43512054136-hm8pg6tue7uajtb11i4nqmpndng6ik05.apps.googleusercontent.com').trim();
+    const envClientSecret = (import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_SECRET || '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').trim();
     const envAccessToken = (import.meta.env.VITE_GOOGLE_DRIVE_ACCESS_TOKEN || '').trim();
-    const envRootFolder = (import.meta.env.VITE_GOOGLE_DRIVE_ROOT_FOLDER || '').trim();
+    const envRefreshToken = (import.meta.env.VITE_GOOGLE_DRIVE_REFRESH_TOKEN || '').trim();
+    const envRootFolder = (import.meta.env.VITE_GOOGLE_DRIVE_ROOT_FOLDER || '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5').trim();
 
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
+      const storedRefreshToken = localStorage.getItem('avv_mate_google_refresh_token') || '';
       if (stored) {
         const parsed = JSON.parse(stored);
         return {
           ...parsed,
           clientId: parsed.clientId || envClientId,
+          clientSecret: parsed.clientSecret || envClientSecret,
           accessToken: parsed.accessToken || envAccessToken,
+          refreshToken: parsed.refreshToken || storedRefreshToken || envRefreshToken,
           rootFolderId: parsed.rootFolderId || envRootFolder,
           enabled: parsed.enabled !== undefined ? parsed.enabled : Boolean(envAccessToken || envClientId),
           storageMode: parsed.storageMode || 'google_drive',
@@ -127,7 +134,9 @@ class GoogleDriveService {
     return {
       enabled: Boolean(envAccessToken || envClientId),
       clientId: envClientId,
+      clientSecret: envClientSecret,
       accessToken: envAccessToken,
+      refreshToken: envRefreshToken,
       rootFolderId: envRootFolder,
       storageMode: 'google_drive',
     };
@@ -140,6 +149,9 @@ class GoogleDriveService {
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.config));
+      if (this.config.refreshToken) {
+        localStorage.setItem('avv_mate_google_refresh_token', this.config.refreshToken);
+      }
       window.dispatchEvent(new CustomEvent('avv_mate_drive_config_updated', { detail: this.config }));
     } catch (e) {
       console.error('Failed to save Google Drive configuration:', e);
@@ -157,10 +169,123 @@ class GoogleDriveService {
 
   public isTokenValid(): boolean {
     if (!this.config.accessToken) return false;
-    if (this.config.tokenExpiresAt && Date.now() >= this.config.tokenExpiresAt) {
-      return false;
+    if (this.config.tokenExpiresAt) {
+      // Buffer of 2 minutes before actual expiration
+      if (Date.now() >= (this.config.tokenExpiresAt - 120000)) {
+        return false;
+      }
     }
     return true;
+  }
+
+  /**
+   * Ensures a valid OAuth access token is available.
+   * If expired or forceRefresh is true, attempts silent renewal via:
+   * 1. Refresh token exchange via Netlify serverless function /api/drive-sync
+   * 2. Google Identity Services silent client token request (prompt: '')
+   * If all fail, dispatches 'avv_mate_auth_expired' and throws or falls back to last token.
+   */
+  public async getValidToken(forceRefresh = false): Promise<string> {
+    if (!forceRefresh && this.isTokenValid() && this.config.accessToken) {
+      return this.config.accessToken;
+    }
+
+    // 1. Try refreshing via refreshToken on serverless backend
+    const refreshToken = this.config.refreshToken || (typeof localStorage !== 'undefined' ? localStorage.getItem('avv_mate_google_refresh_token') || '' : '');
+    if (refreshToken) {
+      try {
+        const res = await fetch('/api/drive-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'refreshAccessToken',
+            refreshToken,
+            clientId: this.config.clientId,
+            clientSecret: this.config.clientSecret,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.accessToken) {
+            const expiresIn = Number(data.expiresIn) || 3599;
+            this.saveConfig({
+              accessToken: data.accessToken,
+              tokenExpiresAt: Date.now() + expiresIn * 1000,
+              enabled: true,
+            });
+            window.dispatchEvent(new CustomEvent('avv_mate_auth_restored'));
+            return data.accessToken;
+          }
+        }
+      } catch (err) {
+        console.warn('Backend refreshAccessToken attempt failed:', err);
+      }
+    }
+
+    // 2. Try silent OAuth renewal with Google Identity Services if browser session is alive
+    try {
+      const silentToken = await this.requestOAuthTokenSilent();
+      if (silentToken?.accessToken) {
+        window.dispatchEvent(new CustomEvent('avv_mate_auth_restored'));
+        return silentToken.accessToken;
+      }
+    } catch (_) {}
+
+    // 3. If we still have an accessToken, return it as last resort but alert that it may be expired
+    if (this.config.accessToken) {
+      window.dispatchEvent(new CustomEvent('avv_mate_auth_expired'));
+      return this.config.accessToken;
+    }
+
+    window.dispatchEvent(new CustomEvent('avv_mate_auth_expired'));
+    throw new Error('Google authorization expired or missing. Please click "Drive Active" in the top bar to reconnect.');
+  }
+
+  /**
+   * Requests a token silently without opening a user-facing popup if possible
+   */
+  public async requestOAuthTokenSilent(): Promise<{ accessToken: string; expiresIn: number } | null> {
+    const clientId = this.config.clientId;
+    if (!clientId || typeof window === 'undefined') return null;
+
+    try {
+      await this.loadGsiScript();
+      if (!window.google?.accounts?.oauth2) return null;
+
+      return await new Promise((resolve) => {
+        try {
+          const tokenClient = window.google.accounts.oauth2.initTokenClient({
+            client_id: clientId.trim(),
+            scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/spreadsheets',
+            prompt: '', // Silent attempt without prompt
+            callback: (response: any) => {
+              if (response && response.access_token) {
+                const expiresInSec = Number(response.expires_in) || 3599;
+                const expiresAt = Date.now() + expiresInSec * 1000;
+                this.saveConfig({
+                  accessToken: response.access_token,
+                  tokenExpiresAt: expiresAt,
+                  enabled: true,
+                });
+                resolve({
+                  accessToken: response.access_token,
+                  expiresIn: expiresInSec,
+                });
+              } else {
+                resolve(null);
+              }
+            },
+            error_callback: () => resolve(null),
+          });
+          tokenClient.requestAccessToken({ prompt: '' });
+        } catch (_) {
+          resolve(null);
+        }
+      });
+    } catch (_) {
+      return null;
+    }
   }
 
   /**
@@ -205,21 +330,77 @@ class GoogleDriveService {
   /**
    * Generates a direct Google OAuth Redirect URL (bypasses browser popup blockers completely)
    */
-  public getDirectAuthUrl(customClientId?: string): string {
+  /**
+   * Generates a direct Google OAuth Redirect URL (bypasses browser popup blockers completely).
+   * Supports offline access so a permanent refresh token can be retrieved.
+   */
+  public getDirectAuthUrl(customClientId?: string, offline = true): string {
     const clientId = customClientId || this.config.clientId;
     if (!clientId) {
       throw new Error('Google OAuth Client ID is required.');
     }
     const redirectUri = typeof window !== 'undefined' ? window.location.origin : 'https://avvmate.netlify.app';
     const scope = encodeURIComponent('https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/spreadsheets');
+    if (offline) {
+      return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&access_type=offline&prompt=consent&scope=${scope}`;
+    }
     return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&prompt=consent`;
   }
 
   /**
-   * Checks if Google OAuth redirected back with #access_token in URL hash
+   * Checks if Google OAuth redirected back with ?code= or #access_token in URL
    */
-  public parseAuthCallbackFromUrl(): boolean {
+  public async parseAuthCallbackFromUrl(): Promise<boolean> {
     if (typeof window === 'undefined') return false;
+
+    // 1. Check for Authorization Code (Code flow: ?code=...)
+    const search = window.location.search;
+    if (search && search.includes('code=')) {
+      const searchParams = new URLSearchParams(search);
+      const code = searchParams.get('code');
+      if (code) {
+        try {
+          const res = await fetch('/api/drive-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'exchangeAuthCode',
+              code,
+              redirectUri: window.location.origin,
+              clientId: this.config.clientId,
+              clientSecret: this.config.clientSecret,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.accessToken) {
+              const expiresIn = Number(data.expiresIn) || 3599;
+              this.saveConfig({
+                accessToken: data.accessToken,
+                refreshToken: data.refreshToken || this.config.refreshToken,
+                tokenExpiresAt: Date.now() + expiresIn * 1000,
+                enabled: true,
+              });
+
+              // Clean query string from browser bar without reload
+              window.history.replaceState(null, '', window.location.pathname);
+
+              this.testConnection(data.accessToken).catch(err => {
+                console.warn('Background Drive test error after code exchange:', err);
+              });
+
+              window.dispatchEvent(new CustomEvent('avv_mate_auth_restored'));
+              return true;
+            }
+          }
+        } catch (exchangeErr) {
+          console.error('Failed to exchange Google OAuth code:', exchangeErr);
+        }
+      }
+    }
+
+    // 2. Check for Implicit Token (Hash flow: #access_token=...)
     const hash = window.location.hash;
     if (hash && hash.includes('access_token=')) {
       const cleanHash = hash.startsWith('#') ? hash.substring(1) : hash;
@@ -242,6 +423,7 @@ class GoogleDriveService {
           console.warn('Background Drive test error:', err);
         });
 
+        window.dispatchEvent(new CustomEvent('avv_mate_auth_restored'));
         return true;
       }
     }
