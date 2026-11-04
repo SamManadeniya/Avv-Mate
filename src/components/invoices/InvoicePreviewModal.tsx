@@ -126,18 +126,44 @@ export const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
     }
   };
 
-  // Triggers automated PDF generation + downloads it + opens the Email Dispatch Modal
-  const handleOpenEmailModal = () => {
+  // Handles Email button: prepares PDF in memory (WITHOUT downloading to disk)
+  // and launches native Mail app with PDF directly attached via Web Share API
+  const handleEmailClick = async () => {
     try {
       setIsGeneratingPdf(true);
-      // 1. Generate & download the official PDF immediately so the user has the physical file
-      invoicePdfService.generatePdf(invoice, true);
-    } catch (e) {
-      console.warn('PDF auto-download notice:', e);
+      // Generate PDF strictly in-memory (autoDownload = false, NEVER downloads to disk)
+      const doc = invoicePdfService.generatePdf(invoice, false);
+      const pdfBlob = doc.output('blob');
+      const filename = `Invoice_${invoice.invoice_no}.pdf`;
+      const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+
+      // If browser supports Web Share with files (Safari on macOS / iOS / modern Chrome)
+      if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        await navigator.share({
+          files: [pdfFile],
+          title: emailSubject,
+          text: `To: ${recipientEmail || invoice.customer_name}\n\n${emailBody}`,
+        });
+
+        if (onStatusChange && invoice.status === 'draft') {
+          onStatusChange(invoice, 'sent');
+        }
+        return;
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        // User closed/dismissed native share sheet, show the dialog so they have other options
+        setIsEmailModalOpen(true);
+        return;
+      }
+      console.warn('Native share notice:', err);
     } finally {
       setIsGeneratingPdf(false);
-      setIsEmailModalOpen(true);
     }
+
+    // Fallback: If native share with files is not supported or encountered an issue,
+    // open the Email Composer Dialog (WITHOUT downloading any file)
+    setIsEmailModalOpen(true);
   };
 
   // Sends email with PDF file attachment via native macOS/iOS Web Share API if supported
@@ -152,7 +178,7 @@ export const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
         await navigator.share({
           files: [pdfFile],
           title: emailSubject,
-          text: emailBody,
+          text: `To: ${recipientEmail || invoice.customer_name}\n\n${emailBody}`,
         });
         if (onStatusChange && invoice.status === 'draft') {
           onStatusChange(invoice, 'sent');
@@ -247,7 +273,7 @@ export const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
 
               <button
                 type="button"
-                onClick={handleOpenEmailModal}
+                onClick={handleEmailClick}
                 disabled={isGeneratingPdf}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-900 text-white rounded-md shadow-2xs transition cursor-pointer"
                 title="Send invoice via email with attached PDF and addressing details"
@@ -302,7 +328,7 @@ export const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
 
             {/* Email Form Body */}
             <div className="p-5 space-y-4 overflow-y-auto flex-1">
-              {/* PDF Auto-Attached Card */}
+              {/* PDF In-Memory Direct Attachment Card */}
               <div className="p-3.5 bg-emerald-50/80 border border-emerald-300 rounded-lg flex items-center justify-between gap-3 shadow-2xs">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
@@ -315,23 +341,14 @@ export const InvoicePreviewModal: React.FC<InvoicePreviewModalProps> = ({
                       </p>
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded-full border border-emerald-300">
                         <Check className="w-3 h-3 text-emerald-600" />
-                        PDF Attached
+                        PDF Attached Directly
                       </span>
                     </div>
                     <p className="text-[11px] text-emerald-800 mt-0.5">
-                      Vector PDF automatically generated & saved to your Downloads folder
+                      Attached directly to email in memory (no disk download needed)
                     </p>
                   </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  className="px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:text-emerald-950 bg-white hover:bg-emerald-100 rounded border border-emerald-300 transition shrink-0 cursor-pointer shadow-2xs"
-                  title="Download copy again"
-                >
-                  Download Again
-                </button>
               </div>
 
               {/* Addressing Details: Recipient Email */}
