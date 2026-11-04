@@ -182,11 +182,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 type="button"
                 onClick={onSyncAllToSheets}
                 disabled={isSyncingSheets}
-                className="hidden lg:flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 transition disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 transition disabled:opacity-50 cursor-pointer shrink-0"
                 title="Sync all tables (Compliance_Jobs, Vehicles, RAW_Workshops, Model_Reports, SVC) to Master Google Sheet"
               >
                 <RefreshCw className={`w-3 h-3 text-sky-600 ${isSyncingSheets ? 'animate-spin' : ''}`} />
-                <span>{isSyncingSheets ? 'Syncing...' : 'Sync Sheet'}</span>
+                <span className="hidden sm:inline">{isSyncingSheets ? 'Syncing...' : 'Sync Sheet'}</span>
               </button>
             )}
 

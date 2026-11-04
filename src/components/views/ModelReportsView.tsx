@@ -126,20 +126,20 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
         <table className="w-full text-left border-collapse text-xs">
           <thead>
             <tr className="bg-slate-100/80 border-b border-slate-200 font-display uppercase tracking-wider text-slate-600 text-[11px]">
-              <th className="py-2.5 px-4 font-bold bg-sky-50/70">MRE No</th>
-              <th className="py-2.5 px-4 font-bold">Build Date Range (MRE)</th>
-              <th className="py-2.5 px-4 font-bold bg-amber-50/50">SEV No</th>
-              <th className="py-2.5 px-4 font-bold">Build Date Range (SEV)</th>
-              <th className="py-2.5 px-4 font-bold">Make</th>
-              <th className="py-2.5 px-4 font-bold">Model</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold bg-sky-50/70">MRE No</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold bg-sky-100/50 text-sky-950">Unique ID</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold">Make</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold">Model</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold bg-amber-50/50">SEV No</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold">Build Date Range (MRE)</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold">Build Date Range (SEV)</th>
               {/* Magenta Columns */}
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">VCC</th>
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Tare</th>
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Power (kW)</th>
               <th className="py-2.5 px-3 font-bold bg-fuchsia-600 text-white text-center">Seats</th>
-              <th className="py-2.5 px-4 font-bold bg-slate-100">Author (Supplier)</th>
-              <th className="py-2.5 px-4 font-bold bg-slate-100">Unique ID</th>
-              <th className="py-2.5 px-4 font-bold text-right sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">Actions</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold bg-slate-100">Author (Supplier)</th>
+              <th className="py-2.5 px-3 sm:px-4 font-bold text-right sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -158,44 +158,57 @@ export const ModelReportsView: React.FC<ModelReportsViewProps> = ({
                   className="hover:bg-sky-50/40 transition group cursor-pointer"
                   onClick={() => onEditReport(report)}
                 >
-                  <td className="py-3 px-4 font-mono font-bold text-slate-900 group-hover:text-sky-700 whitespace-nowrap bg-sky-50/30">
-                    {report.mre_no}
+                  <td className="py-2.5 px-3 sm:px-4 font-mono font-bold text-slate-900 group-hover:text-sky-700 whitespace-nowrap bg-sky-50/30">
+                    <div className="flex flex-col">
+                      <span>{report.mre_no}</span>
+                      {report.unique_id && (
+                        <span className="sm:hidden text-[10px] font-mono font-bold text-sky-800 bg-sky-100 px-1.5 py-0.2 rounded w-fit mt-0.5">
+                          UID: {report.unique_id}
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="py-3 px-4 font-mono text-slate-600 whitespace-nowrap">
-                    {report.build_from || report.build_to ? `${report.build_from || '—'} to ${report.build_to || '—'}` : '—'}
+                  <td className="py-2.5 px-3 sm:px-4 whitespace-nowrap bg-sky-50/20">
+                    {report.unique_id ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-sky-100/80 text-sky-900 border border-sky-300/80 shadow-2xs">
+                        {report.unique_id}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 font-mono">—</span>
+                    )}
                   </td>
-                  <td className="py-3 px-4 font-mono font-semibold text-amber-900 bg-amber-50/30 whitespace-nowrap">
-                    {report.sev_no || '—'}
-                  </td>
-                  <td className="py-3 px-4 font-mono text-slate-600 whitespace-nowrap">
-                    {report.sev_build_from || report.sev_build_to ? `${report.sev_build_from || '—'} to ${report.sev_build_to || '—'}` : '—'}
-                  </td>
-                  <td className="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
+                  <td className="py-2.5 px-3 sm:px-4 font-semibold text-slate-900 whitespace-nowrap">
                     {report.make}
                   </td>
-                  <td className="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
+                  <td className="py-2.5 px-3 sm:px-4 font-semibold text-slate-900 whitespace-nowrap">
                     {report.model}
                   </td>
-                  <td className="py-3 px-3 font-mono font-bold text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
+                  <td className="py-2.5 px-3 sm:px-4 font-mono font-semibold text-amber-900 bg-amber-50/30 whitespace-nowrap">
+                    {report.sev_no || '—'}
+                  </td>
+                  <td className="py-2.5 px-3 sm:px-4 font-mono text-slate-600 whitespace-nowrap">
+                    {report.build_from || report.build_to ? `${report.build_from || '—'} to ${report.build_to || '—'}` : '—'}
+                  </td>
+                  <td className="py-2.5 px-3 sm:px-4 font-mono text-slate-600 whitespace-nowrap">
+                    {report.sev_build_from || report.sev_build_to ? `${report.sev_build_from || '—'} to ${report.sev_build_to || '—'}` : '—'}
+                  </td>
+                  <td className="py-2.5 px-3 font-mono font-bold text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
                     {report.vcc || '—'}
                   </td>
-                  <td className="py-3 px-3 font-mono text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
+                  <td className="py-2.5 px-3 font-mono text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
                     {report.tare_kg ? `${report.tare_kg} kg` : '—'}
                   </td>
-                  <td className="py-3 px-3 font-mono text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
+                  <td className="py-2.5 px-3 font-mono text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
                     {report.power_kw ? `${report.power_kw} kW` : '—'}
                   </td>
-                  <td className="py-3 px-3 font-mono text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
+                  <td className="py-2.5 px-3 font-mono text-center text-fuchsia-900 bg-fuchsia-50/40 whitespace-nowrap">
                     {report.seats || '—'}
                   </td>
-                  <td className="py-3 px-4 font-medium text-slate-800 whitespace-nowrap">
+                  <td className="py-2.5 px-3 sm:px-4 font-medium text-slate-800 whitespace-nowrap">
                     {report.author || '—'}
                   </td>
-                  <td className="py-3 px-4 font-mono font-medium text-slate-700 whitespace-nowrap">
-                    {report.unique_id || '—'}
-                  </td>
                   <td 
-                    className="py-3 px-4 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-sky-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]" 
+                    className="py-2.5 px-3 sm:px-4 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-sky-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]" 
                     onClick={e => e.stopPropagation()}
                   >
                     <div className="flex items-center justify-end gap-1">

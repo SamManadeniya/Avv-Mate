@@ -161,6 +161,7 @@ export const exportService = {
 
       const rows = (reports || []).map(r => [
         r.mre_no || '—',
+        r.unique_id || '—',
         r.make || '—',
         r.model || '—',
         r.sev_no || '—',
@@ -175,7 +176,7 @@ export const exportService = {
 
       autoTable(doc, {
         startY: 28,
-        head: [['MRE #', 'Make', 'Model', 'SEV #', 'Category', 'Build From', 'Build To', 'Tare', 'Power', 'Seats', 'Author']],
+        head: [['MRE #', 'Unique ID', 'Make', 'Model', 'SEV #', 'Category', 'Build From', 'Build To', 'Tare', 'Power', 'Seats', 'Author']],
         body: rows,
         theme: 'grid',
         headStyles: {
