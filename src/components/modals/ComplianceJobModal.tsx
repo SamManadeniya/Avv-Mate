@@ -263,6 +263,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           const isPhoto = !isComplianceDoc && (docType === 'PHOTOS' || file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(file.name));
           const folderLabel = isComplianceDoc ? 'DOCS' : isVid ? 'MEDIA/VIDEOS' : isPhoto ? 'MEDIA/PHOTOS' : 'DOCS';
 
+          showUploadToast('uploading', `Uploading ${docTitle} & creating/syncing to Google Drive (${folderNo}/${folderLabel})...`);
+
           googleDriveService.syncJobAttachmentsToDrive(folderNo, [{
             name: file.name,
             mimeType: file.type,
@@ -271,7 +273,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             category: isComplianceDoc ? 'docs' : isVid ? 'videos' : 'photos',
           }]).then(() => {
             setDriveFeedback(`✓ Auto-saved ${file.name} to Google Drive (${folderNo}/${folderLabel})`);
-          }).catch(e => console.warn('Background Drive upload:', e));
+            showUploadToast('success', `✓ Google Drive folder ready & ${docTitle} (${file.name}) uploaded to ${folderNo}/${folderLabel}!`);
+          }).catch(e => {
+            console.warn('Background Drive upload:', e);
+            showUploadToast('success', `✓ Successfully uploaded ${docTitle} to Compliance!`);
+          });
+        } else {
+          showUploadToast('success', `✓ Successfully uploaded ${docTitle} to Compliance!`);
         }
       } else {
         // If creating a brand new job before saving, store temporary local preview
@@ -283,9 +291,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           _fileObject: file
         };
         setAttachments(prev => ({ ...prev, [docType]: tempAtt }));
+        showUploadToast('success', `✓ ${docTitle} staged for upload on save!`);
       }
-
-      showUploadToast('success', `✓ Successfully uploaded ${docTitle} to Compliance!`);
     } catch (err: any) {
       console.error(err);
       setErrorMessage(`Failed to upload ${docType}: ${err.message || 'Error'}`);
@@ -312,8 +319,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setErrorMessage('Please enter a folder number (e.g. SVC1028) first.');
       return;
     }
+    const cleanNo = folderNo.toUpperCase().trim();
     setIsSyncingDrive(true);
     setDriveFeedback(null);
+    showUploadToast('uploading', `Creating & verifying Google Drive folder tree for ${cleanNo}...`);
     try {
       if (googleDriveService.isConfigured()) {
         if (!googleDriveService.isTokenValid() && googleDriveService.getConfig().clientId) {
@@ -366,8 +375,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           setDriveFeedback(`Organizing & syncing ${attList.length} files to Google Drive (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS)...`);
           const syncResult = await googleDriveService.syncJobAttachmentsToDrive(folderNo, attList);
           setDriveFeedback(`✓ Verified Google Drive tree & organized ${syncResult.uploadedCount} files into DOCS, MEDIA/PHOTOS, and MEDIA/VIDEOS!`);
+          showUploadToast('success', `✓ Google Drive folder ${hierarchy.vehicleFolder.name} created & ${syncResult.uploadedCount} file(s) uploaded and ready!`);
         } else {
           setDriveFeedback(`✓ Folder tree created on Google Drive: ${hierarchy.vehicleFolder.name} (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS, MEDIA/SUBMIT)`);
+          showUploadToast('success', `✓ Google Drive folder ${hierarchy.vehicleFolder.name} created & ready (DOCS, MEDIA/PHOTOS, MEDIA/VIDEOS)!`);
         }
       } else {
         const demo = googleDriveService.getDemoHierarchy(folderNo);
@@ -376,10 +387,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           setVideosUrl(demo.videosFolder.webViewLink);
         }
         setDriveFeedback(`Directory ready for ${demo.vehicleFolder.name}`);
+        showUploadToast('success', `✓ Google Drive folder directory ready for ${demo.vehicleFolder.name}`);
       }
     } catch (err: any) {
       console.error(err);
       setDriveFeedback(`Drive sync notice: ${err.message || 'Please connect Google Drive'}`);
+      showUploadToast('error', `Drive sync notice: ${err.message || 'Please connect Google Drive'}`);
     } finally {
       setIsSyncingDrive(false);
     }
@@ -458,6 +471,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setBatchPhotosCount(newTotal);
 
       // If Google Drive is authorized on this device, mirror photos to MEDIA/PHOTOS
+      let drivePhotosUploaded = false;
       if (googleDriveService.isConfigured() && googleDriveService.isTokenValid() && targetHierarchy?.photosFolder?.id && !targetHierarchy.photosFolder.id.startsWith('demo_')) {
         try {
           const uploaded = await googleDriveService.uploadBatch(
@@ -468,7 +482,9 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               showUploadToast('uploading', `Uploading photo ${completed} of ${total}: ${currentFile}`);
             }
           );
+          drivePhotosUploaded = true;
           setDriveFeedback(`✓ Successfully uploaded ${uploaded.length} photos to Google Drive (${folderNo}/MEDIA/PHOTOS)`);
+          showUploadToast('success', `✓ Google Drive folder ready & ${uploaded.length} photos uploaded to ${folderNo}/MEDIA/PHOTOS!`);
         } catch (driveErr: any) {
           console.warn('Google Drive batch upload warning:', driveErr);
           setDriveFeedback(`✓ ${filesArray.length} photos attached to job (${newTotal} total)`);
@@ -504,7 +520,9 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         }));
       }
 
-      showUploadToast('success', `✓ Successfully uploaded ${filesArray.length} Compliance Photos (${newTotal} total)!`);
+      if (!drivePhotosUploaded) {
+        showUploadToast('success', `✓ Successfully uploaded ${filesArray.length} Compliance Photos (${newTotal} total)!`);
+      }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(`Batch photo notice: ${err.message || 'Error attaching photos'}`);
@@ -603,8 +621,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         setVideoList(prev => [...prev, ...uploadedList]);
         const mainVideoLink = targetHierarchy?.videosFolder?.webViewLink || uploadedList[0].webViewLink;
         setVideosUrl(mainVideoLink);
-        setDriveFeedback(`✓ Successfully attached ${uploadedList.length} video(s)!`);
-        showUploadToast('success', `✓ Successfully uploaded ${uploadedList.length} Inspection Video(s) to Compliance!`);
+        if (isDriveActive) {
+          setDriveFeedback(`✓ Successfully uploaded ${uploadedList.length} video(s) to Google Drive (${folderNo}/MEDIA/VIDEOS)`);
+          showUploadToast('success', `✓ Google Drive folder ready & ${uploadedList.length} video(s) uploaded to ${folderNo}/MEDIA/VIDEOS!`);
+        } else {
+          setDriveFeedback(`✓ Successfully attached ${uploadedList.length} video(s)!`);
+          showUploadToast('success', `✓ Successfully uploaded ${uploadedList.length} Inspection Video(s) to Compliance!`);
+        }
       }
     } catch (err: any) {
       console.error(err);
@@ -756,6 +779,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         const attList = Object.values(uploadedAttachments);
 
         try {
+          showUploadToast('uploading', `Creating Google Drive folder tree & uploading files for ${cleanNo}...`);
           // 1. Force refresh ensures that if the folder was deleted on Drive, it is freshly recreated
           const hierarchy = await googleDriveService.ensureVehicleFolderHierarchy(cleanNo, true);
           setDriveHierarchy(hierarchy);
@@ -775,6 +799,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               queuedBatchPhotos
             );
           }
+          showUploadToast('success', `✓ Google Drive folder created & all files uploaded and ready for ${cleanNo}!`);
         } catch (driveErr) {
           console.warn('Drive auto-sync on save error:', driveErr);
         }
@@ -1196,9 +1221,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                             <span>Uploading…</span>
                           </span>
                         ) : att ? (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
-                            <Check className="w-3 h-3" /> {isPhotos && batchPhotosCount > 1 ? `${batchPhotosCount} Photos` : 'Attached'}
-                          </span>
+                          <div className="flex items-center gap-1 flex-wrap justify-end">
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
+                              <Check className="w-3 h-3" /> {isPhotos && batchPhotosCount > 1 ? `${batchPhotosCount} Photos` : 'Attached'}
+                            </span>
+                            {isDriveConfigured && (
+                              <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-sky-700 bg-sky-50 px-1 py-0.2 rounded border border-sky-200" title="Ready in Google Drive">
+                                ☁️ Drive Ready
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-[10px] font-mono font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded">
                             Pending
@@ -1396,8 +1428,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                               <p className="font-semibold text-slate-800 truncate" title={vid.name}>
                                 {vid.name}
                               </p>
-                              <p className="text-[10px] text-slate-500 font-mono">
-                                {vid.size ? formatBytes(vid.size) : 'Drive Video'} • {folderNo}/MEDIA/VIDEOS
+                              <p className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5 flex-wrap">
+                                <span>{vid.size ? formatBytes(vid.size) : 'Drive Video'} • {folderNo}/MEDIA/VIDEOS</span>
+                                {isDriveConfigured && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-sky-700 bg-sky-50 px-1 py-0.2 rounded border border-sky-200">
+                                    ☁️ Drive Ready
+                                  </span>
+                                )}
                               </p>
                             </div>
                           </div>
