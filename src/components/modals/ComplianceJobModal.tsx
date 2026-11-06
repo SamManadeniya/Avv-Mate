@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Upload, 
@@ -16,7 +16,9 @@ import {
   RefreshCw,
   Film,
   Plus,
-  HardDrive
+  HardDrive,
+  Loader2,
+  CheckCircle2
 } from 'lucide-react';
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport, DocType } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
@@ -74,6 +76,24 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const [uploadingDoc, setUploadingDoc] = useState<DocType | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Active Upload Notification Toast
+  const [uploadToast, setUploadToast] = useState<{
+    id: number;
+    type: 'uploading' | 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const toastTimerRef = useRef<any>(null);
+
+  const showUploadToast = (type: 'uploading' | 'success' | 'error', message: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setUploadToast({ id: Date.now(), type, message });
+    if (type === 'success') {
+      toastTimerRef.current = setTimeout(() => {
+        setUploadToast(null);
+      }, 4000);
+    }
+  };
 
   // Google Drive & High-Volume Media states
   const [isDriveConfigured, setIsDriveConfigured] = useState(() => googleDriveService.isConfigured());
@@ -207,9 +227,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
   // Handle file upload for a specific slot
   const handleFileUpload = async (docType: DocType, file: File) => {
+    const docConfig = REQUIRED_DOC_TYPES.find(d => d.type === docType);
+    const docTitle = docConfig ? `${docConfig.label} (${docConfig.name})` : docType;
+
     try {
       setUploadingDoc(docType);
       setErrorMessage('');
+      showUploadToast('uploading', `Uploading ${docTitle}: ${file.name}...`);
 
       if (jobToEdit?.id) {
         let att: any = null;
@@ -260,9 +284,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         };
         setAttachments(prev => ({ ...prev, [docType]: tempAtt }));
       }
+
+      showUploadToast('success', `✓ Successfully uploaded ${docTitle} to Compliance!`);
     } catch (err: any) {
       console.error(err);
       setErrorMessage(`Failed to upload ${docType}: ${err.message || 'Error'}`);
+      showUploadToast('error', `Failed to upload ${docTitle}: ${err.message || 'Error'}`);
     } finally {
       setUploadingDoc(null);
     }
@@ -408,6 +435,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     setIsBatchUploading(true);
     setErrorMessage('');
     setDriveFeedback(null);
+    showUploadToast('uploading', `Uploading ${filesArray.length} Compliance Photos...`);
 
     try {
       let targetHierarchy = driveHierarchy;
@@ -437,6 +465,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             filesArray,
             (completed, total, currentFile) => {
               setBatchProgress({ completed, total, currentFile });
+              showUploadToast('uploading', `Uploading photo ${completed} of ${total}: ${currentFile}`);
             }
           );
           setDriveFeedback(`✓ Successfully uploaded ${uploaded.length} photos to Google Drive (${folderNo}/MEDIA/PHOTOS)`);
@@ -474,9 +503,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           PHOTOS: photosAtt
         }));
       }
+
+      showUploadToast('success', `✓ Successfully uploaded ${filesArray.length} Compliance Photos (${newTotal} total)!`);
     } catch (err: any) {
       console.error(err);
       setErrorMessage(`Batch photo notice: ${err.message || 'Error attaching photos'}`);
+      showUploadToast('error', `Batch photo notice: ${err.message || 'Error attaching photos'}`);
     } finally {
       setIsBatchUploading(false);
       setBatchProgress(null);
@@ -496,6 +528,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     setIsVideoUploading(true);
     setErrorMessage('');
     setDriveFeedback(null);
+    showUploadToast('uploading', `Uploading ${filesArray.length} inspection video clip(s)...`);
 
     try {
       let targetHierarchy = driveHierarchy;
@@ -524,6 +557,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           percent: 10,
           name: file.name,
         });
+        showUploadToast('uploading', `Uploading video (${i + 1}/${totalVideos}): ${file.name}...`);
 
         if (isDriveActive && targetHierarchy?.videosFolder?.id) {
           try {
@@ -537,6 +571,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                   percent: pct,
                   name: file.name,
                 });
+                showUploadToast('uploading', `Uploading video (${i + 1}/${totalVideos}): ${file.name} (${pct}%)...`);
               }
             );
 
@@ -569,10 +604,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         const mainVideoLink = targetHierarchy?.videosFolder?.webViewLink || uploadedList[0].webViewLink;
         setVideosUrl(mainVideoLink);
         setDriveFeedback(`✓ Successfully attached ${uploadedList.length} video(s)!`);
+        showUploadToast('success', `✓ Successfully uploaded ${uploadedList.length} Inspection Video(s) to Compliance!`);
       }
     } catch (err: any) {
       console.error(err);
       setErrorMessage(`Video attachment notice: ${err.message || 'Error attaching video'}`);
+      showUploadToast('error', `Video attachment notice: ${err.message || 'Error attaching video'}`);
     } finally {
       setIsVideoUploading(false);
       setVideoProgress(null);
@@ -592,6 +629,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
     setIsSaving(true);
     setErrorMessage('');
+    showUploadToast('uploading', `Saving compliance job ${folderNo.toUpperCase().trim()} & processing attachments...`);
 
     try {
       let savedJob: ComplianceJob;
@@ -781,6 +819,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     } catch (err: any) {
       console.error('Save error:', err);
       setErrorMessage(err.message || 'Error saving compliance job');
+      showUploadToast('error', err.message || 'Error saving compliance job');
     } finally {
       setIsSaving(false);
     }
@@ -816,6 +855,40 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Active Upload & Processing Status Toast Banner */}
+        {uploadToast && (
+          <div
+            className={`px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 text-xs border-b transition-all duration-300 ${
+              uploadToast.type === 'uploading'
+                ? 'bg-sky-50 text-sky-900 border-sky-200'
+                : uploadToast.type === 'success'
+                ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                : 'bg-red-50 text-red-900 border-red-200'
+            }`}
+          >
+            <div className="flex items-center gap-2 font-medium min-w-0">
+              {uploadToast.type === 'uploading' && (
+                <Loader2 className="w-4 h-4 animate-spin text-sky-600 shrink-0" />
+              )}
+              {uploadToast.type === 'success' && (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              )}
+              {uploadToast.type === 'error' && (
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              )}
+              <span className="truncate">{uploadToast.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setUploadToast(null)}
+              className="text-slate-400 hover:text-slate-600 p-0.5 rounded transition cursor-pointer shrink-0"
+              title="Dismiss notification"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Modal Form Body */}
         <form onSubmit={handleSubmit} className="overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6 flex-1">
@@ -1097,12 +1170,15 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 const att = attachments[doc.type];
                 const isUploading = uploadingDoc === doc.type;
                 const isPhotos = doc.type === 'PHOTOS';
+                const isPhotosUploading = isPhotos && isBatchUploading;
 
                 return (
                   <div
                     key={doc.type}
                     className={`p-3 rounded-lg border text-xs transition flex flex-col justify-between ${
-                      att
+                      isUploading || isPhotosUploading
+                        ? 'bg-sky-50/80 border-sky-400 ring-2 ring-sky-400 ring-offset-1 shadow-xs animate-pulse'
+                        : att
                         ? 'bg-emerald-50/50 border-emerald-300'
                         : isPhotos
                         ? 'bg-sky-50/30 border-sky-200 hover:border-sky-300'
@@ -1114,7 +1190,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                         <span className="font-mono font-bold text-slate-900 text-xs">
                           {doc.label}
                         </span>
-                        {att ? (
+                        {isUploading || isPhotosUploading ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded">
+                            <Loader2 className="w-3 h-3 animate-spin text-sky-600" />
+                            <span>Uploading…</span>
+                          </span>
+                        ) : att ? (
                           <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded">
                             <Check className="w-3 h-3" /> {isPhotos && batchPhotosCount > 1 ? `${batchPhotosCount} Photos` : 'Attached'}
                           </span>
@@ -1143,13 +1224,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                       {isPhotos && isBatchUploading && (
                         <div className="p-2 bg-sky-50 border border-sky-200 rounded text-[10px] text-sky-800 mb-2 space-y-1">
                           <div className="flex items-center justify-between font-semibold">
-                            <span>Uploading to MEDIA/PHOTOS…</span>
+                            <span className="flex items-center gap-1">
+                              <Loader2 className="w-3 h-3 animate-spin text-sky-600" />
+                              <span>Uploading to MEDIA/PHOTOS…</span>
+                            </span>
                             <span>{batchProgress?.completed || 0}/{batchProgress?.total || 'batch'}</span>
                           </div>
                           <div className="w-full bg-sky-200 h-1.5 rounded-full overflow-hidden">
                             <div 
-                              className="bg-sky-600 h-1.5 transition-all duration-200"
-                              style={{ width: `${batchProgress ? Math.round((batchProgress.completed / batchProgress.total) * 100) : 50}%` }}
+                              className="bg-sky-600 h-1.5 transition-all duration-200 animate-pulse"
+                              style={{ width: `${batchProgress && batchProgress.total ? Math.round((batchProgress.completed / batchProgress.total) * 100) : 50}%` }}
                             />
                           </div>
                         </div>
@@ -1168,14 +1252,26 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                             <ExternalLink className="w-3 h-3" /> View
                           </a>
                           {isPhotos && (
-                            <label className="p-1 text-sky-700 hover:text-sky-900 hover:bg-sky-100 rounded border border-sky-200 cursor-pointer transition" title="Add more photos (up to 80+)">
-                              <Upload className="w-3.5 h-3.5" />
+                            <label className={`p-1 rounded border border-sky-200 cursor-pointer transition ${
+                              isBatchUploading
+                                ? 'bg-sky-100 text-sky-400 cursor-wait'
+                                : 'text-sky-700 hover:text-sky-900 hover:bg-sky-100'
+                            }`} title="Add more photos (up to 80+)">
+                              {isBatchUploading ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
+                              ) : (
+                                <Upload className="w-3.5 h-3.5" />
+                              )}
                               <input
                                 type="file"
                                 multiple
+                                disabled={isBatchUploading}
                                 accept="image/*"
                                 className="hidden"
-                                onChange={e => handleBatchPhotosUpload(e.target.files)}
+                                onChange={e => {
+                                  handleBatchPhotosUpload(e.target.files);
+                                  e.target.value = '';
+                                }}
                               />
                             </label>
                           )}
@@ -1190,29 +1286,59 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                         </>
                       ) : isPhotos ? (
                         <div className="flex-1 flex gap-1">
-                          <label className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 px-2 text-[11px] font-semibold text-white bg-sky-700 hover:bg-sky-800 rounded cursor-pointer transition shadow-2xs">
-                            <Images className="w-3 h-3" />
-                            <span>{isBatchUploading ? 'Uploading…' : 'Batch (30–80+)'}</span>
+                          <label className={`flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2 text-[11px] font-semibold text-white rounded cursor-pointer transition shadow-2xs ${
+                            isBatchUploading ? 'bg-sky-800 cursor-wait' : 'bg-sky-700 hover:bg-sky-800'
+                          }`}>
+                            {isBatchUploading ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-200" />
+                                <span>Uploading Photos…</span>
+                              </>
+                            ) : (
+                              <>
+                                <Images className="w-3 h-3" />
+                                <span>Batch (30–80+)</span>
+                              </>
+                            )}
                             <input
                               type="file"
                               multiple
+                              disabled={isBatchUploading}
                               accept="image/*"
                               className="hidden"
-                              onChange={e => handleBatchPhotosUpload(e.target.files)}
+                              onChange={e => {
+                                handleBatchPhotosUpload(e.target.files);
+                                e.target.value = '';
+                              }}
                             />
                           </label>
                         </div>
                       ) : (
-                        <label className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 px-2 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-300 rounded border border-slate-200 cursor-pointer transition">
-                          <Upload className="w-3 h-3" />
-                          <span>{isUploading ? 'Uploading…' : 'Attach'}</span>
+                        <label className={`flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2 text-[11px] font-semibold rounded border cursor-pointer transition ${
+                          isUploading
+                            ? 'bg-sky-100 text-sky-800 border-sky-300 cursor-wait'
+                            : 'text-slate-700 bg-slate-100 hover:bg-sky-50 hover:text-sky-800 hover:border-sky-300 border-slate-200'
+                        }`}>
+                          {isUploading ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
+                              <span>Uploading…</span>
+                            </>
+                          ) : (
+                            <>
+                              <Upload className="w-3 h-3" />
+                              <span>Attach</span>
+                            </>
+                          )}
                           <input
                             type="file"
+                            disabled={isUploading}
                             className="hidden"
                             accept=".pdf,.png,.jpg,.jpeg,.webp"
                             onChange={e => {
                               const file = e.target.files?.[0];
                               if (file) handleFileUpload(doc.type, file);
+                              e.target.value = '';
                             }}
                           />
                         </label>
@@ -1316,9 +1442,22 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                       <p className="text-[11px] text-slate-500">
                         Supports 2–3+ inspection clips (e.g. walkaround, underbody, engine bay)
                       </p>
-                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-300 rounded cursor-pointer transition">
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add Video(s)</span>
+                      <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded border transition cursor-pointer ${
+                        isVideoUploading
+                          ? 'bg-sky-100 text-sky-800 border-sky-300 cursor-wait'
+                          : 'text-sky-700 bg-sky-50 hover:bg-sky-100 border-sky-300'
+                      }`}>
+                        {isVideoUploading ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
+                            <span>Uploading…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add Video(s)</span>
+                          </>
+                        )}
                         <input
                           type="file"
                           multiple
@@ -1334,18 +1473,31 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <label className="flex flex-col sm:flex-row items-center justify-center gap-2.5 p-4 border-2 border-dashed border-slate-300 hover:border-sky-500 hover:bg-sky-50/50 rounded-lg cursor-pointer transition text-center sm:text-left">
+                  <label className={`flex flex-col sm:flex-row items-center justify-center gap-2.5 p-4 border-2 border-dashed rounded-lg transition text-center sm:text-left ${
+                    isVideoUploading
+                      ? 'border-sky-400 bg-sky-50/80 cursor-wait ring-2 ring-sky-300 ring-offset-1 animate-pulse'
+                      : 'border-slate-300 hover:border-sky-500 hover:bg-sky-50/50 cursor-pointer'
+                  }`}>
                     <div className="p-2 bg-sky-100 text-sky-700 rounded-full shrink-0">
-                      <Upload className="w-4 h-4" />
+                      {isVideoUploading ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-sky-700" />
+                      ) : (
+                        <Upload className="w-4 h-4" />
+                      )}
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-slate-800">
-                        {isVideoUploading
-                          ? `Uploading Video ${videoProgress?.current || 1} of ${videoProgress?.total || 1}... (${videoProgress?.percent || 0}%)`
-                          : 'Upload Vehicle Inspection Videos (2–3+ clips supported)'}
+                      <p className="text-xs font-bold text-slate-800 flex items-center justify-center sm:justify-start gap-1.5">
+                        {isVideoUploading && <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600 shrink-0" />}
+                        <span>
+                          {isVideoUploading
+                            ? `Uploading Video ${videoProgress?.current || 1} of ${videoProgress?.total || 1}... (${videoProgress?.percent || 0}%)`
+                            : 'Upload Vehicle Inspection Videos (2–3+ clips supported)'}
+                        </span>
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        Select 1, 2, 3 or more inspection clips (.mp4, .mov) — uploaded directly to Google Drive: <span className="font-mono font-semibold text-sky-800">{folderNo}/MEDIA/VIDEOS</span>
+                        {isVideoUploading
+                          ? `Processing ${videoProgress?.name || 'video file'} — uploading directly to Google Drive`
+                          : <>Select 1, 2, 3 or more inspection clips (.mp4, .mov) — uploaded directly to Google Drive: <span className="font-mono font-semibold text-sky-800">{folderNo}/MEDIA/VIDEOS</span></>}
                       </p>
                     </div>
                     <input
@@ -1363,15 +1515,22 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 )}
 
                 {isVideoUploading && (
-                  <div className="mt-2 space-y-1">
-                    <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div className="mt-2 space-y-1.5 p-3 bg-sky-50 border border-sky-200 rounded-lg">
+                    <div className="flex items-center justify-between text-xs font-semibold text-sky-950">
+                      <span className="flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
+                        <span>Uploading Video {videoProgress?.current || 1} of ${videoProgress?.total || 1}...</span>
+                      </span>
+                      <span className="font-mono text-sky-700 font-bold">{videoProgress?.percent || 0}%</span>
+                    </div>
+                    <div className="w-full bg-sky-200 h-2 rounded-full overflow-hidden">
                       <div 
-                        className="bg-emerald-600 h-2 transition-all duration-300"
+                        className="bg-sky-600 h-2 transition-all duration-300 animate-pulse"
                         style={{ width: `${videoProgress?.percent || 0}%` }}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-600 font-mono">
-                      Transferring video {videoProgress?.current || 1} of {videoProgress?.total || 1}: {videoProgress?.name || ''} ({videoProgress?.percent || 0}%) to Google Drive ({folderNo}/MEDIA/VIDEOS)...
+                    <p className="text-[11px] text-slate-600 font-mono truncate">
+                      Transferring: {videoProgress?.name || ''} to {folderNo}/MEDIA/VIDEOS
                     </p>
                   </div>
                 )}
