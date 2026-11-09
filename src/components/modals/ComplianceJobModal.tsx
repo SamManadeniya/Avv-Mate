@@ -18,7 +18,8 @@ import {
   Plus,
   HardDrive,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 import type { ComplianceJob, Vehicle, RawWorkshop, ModelReport, DocType } from '../../types';
 import { REQUIRED_DOC_TYPES } from '../../types';
@@ -27,6 +28,8 @@ import { attachmentService } from '../../services/attachmentService';
 import { complianceJobService } from '../../services/complianceJobService';
 import { googleDriveService, type VehicleDriveHierarchy } from '../../services/googleDriveService';
 import { formatBytes, getNextFolderNumber } from '../../lib/utils';
+import { autoMatchFiles, type AutoMatchFile, type AutoMatchTarget } from '../../utils/documentAutoMatcher';
+import { AutoSortReviewModal } from './AutoSortReviewModal';
 
 interface ComplianceJobModalProps {
   isOpen: boolean;
@@ -117,6 +120,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     type: 'photos' | 'videos';
     files: File[];
   } | null>(null);
+
+  // Auto-Sort & Batch Matching states
+  const [autoSortMatches, setAutoSortMatches] = useState<AutoMatchFile[]>([]);
+  const [isAutoSortModalOpen, setIsAutoSortModalOpen] = useState(false);
+  const [isAutoSortProcessing, setIsAutoSortProcessing] = useState(false);
+  const [isDragOverDropzone, setIsDragOverDropzone] = useState(false);
 
   // Initialize or reset form
   useEffect(() => {
@@ -310,6 +319,112 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setAttachments(prev => ({ ...prev, [docType]: null }));
     } catch (err: any) {
       setErrorMessage(`Failed to remove ${docType}: ${err.message}`);
+    }
+  };
+
+  // Batch Attach & Auto-Sort Handlers
+  const handleFilesSelectedForAutoSort = (files: FileList | File[] | null) => {
+    if (!files || files.length === 0) return;
+    const fileArray = Array.from(files);
+    const result = autoMatchFiles(fileArray);
+    setAutoSortMatches(result.matches);
+    setIsAutoSortModalOpen(true);
+  };
+
+  const handleUpdateAutoMatchTarget = (id: string, newTarget: AutoMatchTarget) => {
+    setAutoSortMatches(prev => prev.map(m => m.id === id ? { ...m, target: newTarget, confidence: 'manual', matchReason: 'Manually updated' } : m));
+  };
+
+  const handleConfirmAutoSort = async () => {
+    const validMatches = autoSortMatches.filter(m => m.target !== 'IGNORE');
+    if (validMatches.length === 0) {
+      setIsAutoSortModalOpen(false);
+      return;
+    }
+
+    setIsAutoSortProcessing(true);
+    showUploadToast('uploading', `Auto-sorting and attaching ${validMatches.length} file(s)...`);
+
+    try {
+      const docMatches: Array<{ docType: DocType; file: File }> = [];
+      const photoFiles: File[] = [];
+      const videoFiles: File[] = [];
+
+      validMatches.forEach(m => {
+        if (m.target === 'VIDEOS') {
+          videoFiles.push(m.file);
+        } else if (m.target === 'PHOTOS') {
+          photoFiles.push(m.file);
+        } else {
+          docMatches.push({ docType: m.target as DocType, file: m.file });
+        }
+      });
+
+      const newAttachments: Record<string, any> = {};
+      const driveDocsToSync: Array<{ name: string; mimeType: string; fileObject: File; docType: DocType; category: 'docs' }> = [];
+
+      for (const { docType, file } of docMatches) {
+        if (jobToEdit?.id) {
+          let att: any = null;
+          try {
+            att = await attachmentService.uploadFile(jobToEdit.id, docType, file);
+          } catch (supaErr) {
+            console.warn('Supabase attachment upload fallback:', supaErr);
+            att = {
+              job_id: jobToEdit.id,
+              doc_type: docType,
+              file_name: file.name,
+              file_size: file.size,
+              mime_type: file.type,
+              file_url: URL.createObjectURL(file),
+              _fileObject: file,
+            };
+          }
+          newAttachments[docType] = att;
+        } else {
+          newAttachments[docType] = {
+            file_name: file.name,
+            file_size: file.size,
+            mime_type: file.type,
+            file_url: URL.createObjectURL(file),
+            _fileObject: file,
+          };
+        }
+
+        driveDocsToSync.push({
+          name: file.name,
+          mimeType: file.type,
+          fileObject: file,
+          docType,
+          category: 'docs',
+        });
+      }
+
+      setAttachments(prev => ({ ...prev, ...newAttachments }));
+
+      if (googleDriveService.isConfigured() && driveDocsToSync.length > 0) {
+        googleDriveService.syncJobAttachmentsToDrive(folderNo, driveDocsToSync)
+          .then(() => {
+            setDriveFeedback(`✓ Auto-saved ${driveDocsToSync.length} documents to Google Drive (${folderNo}/DOCS)`);
+          })
+          .catch(e => console.warn('Background Drive batch upload:', e));
+      }
+
+      if (photoFiles.length > 0) {
+        await executeBatchPhotosUpload(photoFiles);
+      }
+
+      if (videoFiles.length > 0) {
+        await executeMultipleVideoUpload(videoFiles);
+      }
+
+      showUploadToast('success', `✓ Successfully auto-sorted & attached ${validMatches.length} file(s) across compliance slots!`);
+      setIsAutoSortModalOpen(false);
+    } catch (err: any) {
+      console.error('Auto-sort batch attach error:', err);
+      showUploadToast('error', `Failed to attach some files: ${err.message || 'Error'}`);
+    } finally {
+      setIsAutoSortProcessing(false);
     }
   };
 
@@ -1047,8 +1162,23 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 </p>
               </div>
 
-              {/* Completeness counter and Request button */}
+              {/* Completeness counter, Auto-sort button, and Request button */}
               <div className="flex items-center gap-2 flex-wrap">
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-sky-600 via-indigo-600 to-sky-700 hover:from-sky-700 hover:to-indigo-800 rounded-lg shadow-xs cursor-pointer transition transform active:scale-98" title="Select multiple files to automatically sort and attach to compliance slots">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+                  <span>Attach All & Auto-Sort</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,image/*,video/*,application/pdf"
+                    className="hidden"
+                    onChange={e => {
+                      handleFilesSelectedForAutoSort(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+
                 {jobToEdit && Object.values(attachments).filter(Boolean).length < 9 && onRequestDocs && (
                   <button
                     type="button"
@@ -1188,6 +1318,55 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 </div>
               </div>
             )}
+
+            {/* 1-Click Multi-File Dropzone & Auto-Sort Banner */}
+            <div
+              onDragOver={e => {
+                e.preventDefault();
+                setIsDragOverDropzone(true);
+              }}
+              onDragLeave={() => setIsDragOverDropzone(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setIsDragOverDropzone(false);
+                handleFilesSelectedForAutoSort(e.dataTransfer.files);
+              }}
+              className={`p-3 rounded-xl border-2 border-dashed transition flex flex-col sm:flex-row items-center justify-between gap-3 ${
+                isDragOverDropzone
+                  ? 'border-sky-500 bg-sky-100/90 shadow-md scale-[1.01]'
+                  : 'border-sky-200/90 hover:border-sky-400 bg-gradient-to-r from-sky-50/70 via-indigo-50/40 to-white'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 text-xs">
+                <div className="p-2 bg-sky-100 text-sky-800 rounded-lg shrink-0">
+                  <Sparkles className="w-4 h-4 text-sky-700" />
+                </div>
+                <div>
+                  <p className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <span>One-Click Smart Document Attacher & Auto-Sorter</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-sky-200/70 text-sky-900 font-semibold">ALL-IN-ONE</span>
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Drop all vehicle files here (or select multiple) to automatically match CRE, EC, CIN, WI, DC, VI, RAW DECLA, RECALL, Photos & Videos without attaching individually.
+                  </p>
+                </div>
+              </div>
+
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-sky-800 bg-white hover:bg-sky-50 border border-sky-300 rounded-lg shadow-2xs cursor-pointer transition shrink-0">
+                <Upload className="w-3.5 h-3.5 text-sky-600" />
+                <span>Select All Files</span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,image/*,video/*,application/pdf"
+                  className="hidden"
+                  onChange={e => {
+                    handleFilesSelectedForAutoSort(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
 
             {/* 8 Document Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1711,6 +1890,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Auto-Sort & Batch Review Modal */}
+      <AutoSortReviewModal
+        isOpen={isAutoSortModalOpen}
+        onClose={() => setIsAutoSortModalOpen(false)}
+        matches={autoSortMatches}
+        onUpdateMatch={handleUpdateAutoMatchTarget}
+        onConfirm={handleConfirmAutoSort}
+        isProcessing={isAutoSortProcessing}
+      />
     </div>
   );
 };
