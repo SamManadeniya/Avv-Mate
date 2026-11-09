@@ -12,7 +12,7 @@ export const REQUIRED_DOC_TYPES: DocDefinition[] = [
   { type: 'EC', label: 'EC', name: 'Export Certificate', description: 'Origin Country Export / De-registration' },
   { type: 'CIN', label: 'CIN', name: 'Import Notice', description: 'Consumer Import Notice / Approval' },
   { type: 'WI', label: 'WI', name: 'Work Instructions', description: 'Model Report Modification & Inspection Guide' },
-  { type: 'DC', label: 'DC', name: 'Deregistration Cert', description: 'De-registration Certificate' },
+  { type: 'DC', label: 'DC', name: 'Damage or Corrosion', description: 'Damage & Corrosion Assessment Report' },
   { type: 'VI', label: 'VI', name: 'Vehicle Inspection', description: 'AVV / RAW Physical Inspection Checklist' },
   { type: 'RAW_DECLA', label: 'RAW DECLA', name: 'RAW Declaration', description: 'Signed Workshop Compliance Declaration' },
   { type: 'RECALL', label: 'RECALL', name: 'Recall Check', description: 'Recall Clearance / Status Check Document' },

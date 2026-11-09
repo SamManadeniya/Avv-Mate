@@ -28,7 +28,8 @@ import { attachmentService } from '../../services/attachmentService';
 import { complianceJobService } from '../../services/complianceJobService';
 import { googleDriveService, type VehicleDriveHierarchy } from '../../services/googleDriveService';
 import { formatBytes, getNextFolderNumber } from '../../lib/utils';
-import { autoMatchFiles, type AutoMatchFile, type AutoMatchTarget } from '../../utils/documentAutoMatcher';
+import { autoMatchFilesWithContent, type AutoMatchFile, type AutoMatchTarget } from '../../utils/documentAutoMatcher';
+import { extractPdfTextAndMetadata, generateStandardFileName, createRenamedFile } from '../../utils/pdfTextExtractor';
 import { AutoSortReviewModal } from './AutoSortReviewModal';
 
 interface ComplianceJobModalProps {
@@ -242,22 +243,46 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     try {
       setUploadingDoc(docType);
       setErrorMessage('');
-      showUploadToast('uploading', `Uploading ${docTitle}: ${file.name}...`);
+
+      // 1. Deep PDF Content Extraction: Read inside the PDF to auto-fill Section 1
+      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+        try {
+          const metadata = await extractPdfTextAndMetadata(file);
+          if (metadata.vin && !vin) {
+            handleVinChange(metadata.vin);
+            showUploadToast('uploading', `Auto-detected VIN ${metadata.vin} from ${docTitle}...`);
+          }
+          if (metadata.rawId && !rawId) {
+            const ws = workshops.find(w => w.raw_id.toUpperCase() === metadata.rawId!.toUpperCase());
+            if (ws) setRawId(ws.raw_id);
+          }
+          if (metadata.mreNo && !mreNo) {
+            const mr = modelReports.find(m => m.mre_no.toUpperCase() === metadata.mreNo!.toUpperCase());
+            if (mr) setMreNo(mr.mre_no);
+          }
+        } catch (_) {}
+      }
+
+      // 2. Standardized Automatic File Renaming (e.g. SVC1013_DC_Damage_or_Corrosion.pdf)
+      const standardName = generateStandardFileName(folderNo, docType, file.name);
+      const targetFile = file.name === standardName ? file : createRenamedFile(file, standardName);
+
+      showUploadToast('uploading', `Uploading ${docTitle}: ${targetFile.name}...`);
 
       if (jobToEdit?.id) {
         let att: any = null;
         try {
-          att = await attachmentService.uploadFile(jobToEdit.id, docType, file);
+          att = await attachmentService.uploadFile(jobToEdit.id, docType, targetFile);
         } catch (supaErr) {
           console.warn('Supabase attachment upload skipped/fallback:', supaErr);
           att = {
             job_id: jobToEdit.id,
             doc_type: docType,
-            file_name: file.name,
-            file_size: file.size,
-            mime_type: file.type,
-            file_url: URL.createObjectURL(file),
-            _fileObject: file,
+            file_name: targetFile.name,
+            file_size: targetFile.size,
+            mime_type: targetFile.type,
+            file_url: URL.createObjectURL(targetFile),
+            _fileObject: targetFile,
           };
         }
         setAttachments(prev => ({ ...prev, [docType]: att }));
@@ -268,21 +293,21 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         // - Videos -> MEDIA/VIDEOS
         if (googleDriveService.isConfigured()) {
           const isComplianceDoc = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RAW_DECL', 'RECALL'].includes(docType);
-          const isVid = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv)$/i.test(file.name);
-          const isPhoto = !isComplianceDoc && (docType === 'PHOTOS' || file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(file.name));
+          const isVid = targetFile.type.startsWith('video/') || /\.(mp4|mov|avi|mkv)$/i.test(targetFile.name);
+          const isPhoto = !isComplianceDoc && (docType === 'PHOTOS' || targetFile.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(targetFile.name));
           const folderLabel = isComplianceDoc ? 'DOCS' : isVid ? 'MEDIA/VIDEOS' : isPhoto ? 'MEDIA/PHOTOS' : 'DOCS';
 
           showUploadToast('uploading', `Uploading ${docTitle} & creating/syncing to Google Drive (${folderNo}/${folderLabel})...`);
 
           googleDriveService.syncJobAttachmentsToDrive(folderNo, [{
-            name: file.name,
-            mimeType: file.type,
-            fileObject: file,
+            name: targetFile.name,
+            mimeType: targetFile.type,
+            fileObject: targetFile,
             docType,
             category: isComplianceDoc ? 'docs' : isVid ? 'videos' : 'photos',
           }]).then(() => {
-            setDriveFeedback(`✓ Auto-saved ${file.name} to Google Drive (${folderNo}/${folderLabel})`);
-            showUploadToast('success', `✓ Google Drive folder ready & ${docTitle} (${file.name}) uploaded to ${folderNo}/${folderLabel}!`);
+            setDriveFeedback(`✓ Auto-saved ${targetFile.name} to Google Drive (${folderNo}/${folderLabel})`);
+            showUploadToast('success', `✓ Google Drive folder ready & ${docTitle} (${targetFile.name}) uploaded to ${folderNo}/${folderLabel}!`);
           }).catch(e => {
             console.warn('Background Drive upload:', e);
             showUploadToast('success', `✓ Successfully uploaded ${docTitle} to Compliance!`);
@@ -293,14 +318,14 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       } else {
         // If creating a brand new job before saving, store temporary local preview
         const tempAtt = {
-          file_name: file.name,
-          file_size: file.size,
-          mime_type: file.type,
-          file_url: URL.createObjectURL(file),
-          _fileObject: file
+          file_name: targetFile.name,
+          file_size: targetFile.size,
+          mime_type: targetFile.type,
+          file_url: URL.createObjectURL(targetFile),
+          _fileObject: targetFile
         };
         setAttachments(prev => ({ ...prev, [docType]: tempAtt }));
-        showUploadToast('success', `✓ ${docTitle} staged for upload on save!`);
+        showUploadToast('success', `✓ ${docTitle} staged with standard name (${targetFile.name})!`);
       }
     } catch (err: any) {
       console.error(err);
@@ -322,11 +347,28 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     }
   };
 
-  // Batch Attach & Auto-Sort Handlers
-  const handleFilesSelectedForAutoSort = (files: FileList | File[] | null) => {
+  // Batch Attach & Auto-Sort Handlers with Deep PDF Inspection & Auto-Fill
+  const handleFilesSelectedForAutoSort = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     const fileArray = Array.from(files);
-    const result = autoMatchFiles(fileArray);
+    showUploadToast('uploading', `Inspecting ${fileArray.length} files & detecting document content...`);
+    
+    const result = await autoMatchFilesWithContent(fileArray);
+
+    // Auto-fill Section 1 if VIN, Workshop, or MRE # was found inside the document!
+    if (result.extractedVin && !vin) {
+      handleVinChange(result.extractedVin);
+      showUploadToast('success', `✓ Smart Extracted: Auto-filled VIN (${result.extractedVin}) into Section 1!`);
+    }
+    if (result.extractedRawId && !rawId) {
+      const ws = workshops.find(w => w.raw_id.toUpperCase() === result.extractedRawId!.toUpperCase());
+      if (ws) setRawId(ws.raw_id);
+    }
+    if (result.extractedMreNo && !mreNo) {
+      const mr = modelReports.find(m => m.mre_no.toUpperCase() === result.extractedMreNo!.toUpperCase());
+      if (mr) setMreNo(mr.mre_no);
+    }
+
     setAutoSortMatches(result.matches);
     setIsAutoSortModalOpen(true);
   };
@@ -343,7 +385,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     }
 
     setIsAutoSortProcessing(true);
-    showUploadToast('uploading', `Auto-sorting and attaching ${validMatches.length} file(s)...`);
+    showUploadToast('uploading', `Auto-sorting, standardizing names & attaching ${validMatches.length} file(s)...`);
 
     try {
       const docMatches: Array<{ docType: DocType; file: File }> = [];
@@ -364,37 +406,41 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       const driveDocsToSync: Array<{ name: string; mimeType: string; fileObject: File; docType: DocType; category: 'docs' }> = [];
 
       for (const { docType, file } of docMatches) {
+        // Standardize filename automatically (e.g. SVC1013_DC_Damage_or_Corrosion.pdf)
+        const standardName = generateStandardFileName(folderNo, docType, file.name);
+        const renamedFile = file.name === standardName ? file : createRenamedFile(file, standardName);
+
         if (jobToEdit?.id) {
           let att: any = null;
           try {
-            att = await attachmentService.uploadFile(jobToEdit.id, docType, file);
+            att = await attachmentService.uploadFile(jobToEdit.id, docType, renamedFile);
           } catch (supaErr) {
             console.warn('Supabase attachment upload fallback:', supaErr);
             att = {
               job_id: jobToEdit.id,
               doc_type: docType,
-              file_name: file.name,
-              file_size: file.size,
-              mime_type: file.type,
-              file_url: URL.createObjectURL(file),
-              _fileObject: file,
+              file_name: renamedFile.name,
+              file_size: renamedFile.size,
+              mime_type: renamedFile.type,
+              file_url: URL.createObjectURL(renamedFile),
+              _fileObject: renamedFile,
             };
           }
           newAttachments[docType] = att;
         } else {
           newAttachments[docType] = {
-            file_name: file.name,
-            file_size: file.size,
-            mime_type: file.type,
-            file_url: URL.createObjectURL(file),
-            _fileObject: file,
+            file_name: renamedFile.name,
+            file_size: renamedFile.size,
+            mime_type: renamedFile.type,
+            file_url: URL.createObjectURL(renamedFile),
+            _fileObject: renamedFile,
           };
         }
 
         driveDocsToSync.push({
-          name: file.name,
-          mimeType: file.type,
-          fileObject: file,
+          name: renamedFile.name,
+          mimeType: renamedFile.type,
+          fileObject: renamedFile,
           docType,
           category: 'docs',
         });
@@ -418,7 +464,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         await executeMultipleVideoUpload(videoFiles);
       }
 
-      showUploadToast('success', `✓ Successfully auto-sorted & attached ${validMatches.length} file(s) across compliance slots!`);
+      showUploadToast('success', `✓ Successfully auto-sorted, renamed & attached ${validMatches.length} file(s)!`);
       setIsAutoSortModalOpen(false);
     } catch (err: any) {
       console.error('Auto-sort batch attach error:', err);
