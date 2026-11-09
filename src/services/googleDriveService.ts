@@ -1365,11 +1365,12 @@ class GoogleDriveService {
       category?: MediaCategory;
     }>,
     onProgress?: (current: string, completed: number, total: number) => void
-  ): Promise<{ uploadedCount: number; errors: string[] }> {
+  ): Promise<{ uploadedCount: number; errors: string[]; uploadedFiles?: Record<string, DriveUploadedFile> }> {
     const hierarchy = await this.ensureVehicleFolderHierarchy(folderNo);
     const token = this.config.accessToken;
     const errors: string[] = [];
     let uploadedCount = 0;
+    const uploadedFiles: Record<string, DriveUploadedFile> = {};
 
     const getTargetFolderId = (item: { name: string; mimeType?: string; docType?: string; category?: MediaCategory }) => {
       const category = item.category || classifyFileCategory(item);
@@ -1415,6 +1416,10 @@ class GoogleDriveService {
           const resData = await proxyRes.json();
           if (resData.success && resData.uploaded) {
             uploadedCount += resData.uploaded.length;
+            resData.uploaded.forEach((u: any) => {
+              if (u.docType) uploadedFiles[u.docType] = u;
+              if (u.name) uploadedFiles[u.name] = u;
+            });
           }
         }
       } catch (err: any) {
@@ -1430,8 +1435,12 @@ class GoogleDriveService {
         onProgress?.(item.name, i + 1, localFiles.length);
         const targetFolderId = getTargetFolderId(item);
         try {
-          await this.uploadFile(targetFolderId, item.fileObject);
+          const up = await this.uploadFile(targetFolderId, item.fileObject);
           uploadedCount++;
+          if (up) {
+            if (item.docType) uploadedFiles[item.docType] = up;
+            uploadedFiles[item.name] = up;
+          }
         } catch (e: any) {
           errors.push(`${item.name}: ${e.message}`);
         }
@@ -1445,27 +1454,23 @@ class GoogleDriveService {
       } catch (_) {}
     }
 
-    return { uploadedCount, errors };
+    return { uploadedCount, errors, uploadedFiles };
   }
 
   /**
    * Demo / Simulated Drive Hierarchy for immediate testing without live API keys.
-   * Generates valid Google Drive links pointing to the root parent folder if configured.
+   * Generates targeted search links so clicking View never dumps user into root folder.
    */
   public getDemoHierarchy(folderNo: string): VehicleDriveHierarchy {
     const cleanFolder = folderNo.toUpperCase().trim() || 'SVC1001';
-    const rootId = this.cleanFolderId(this.config.rootFolderId || '');
-    const realFolderLink = this.isValidDriveId(rootId)
-      ? `https://drive.google.com/drive/folders/${rootId}`
-      : 'https://drive.google.com/drive/u/0/my-drive';
 
     return {
-      vehicleFolder: { id: `drive_${cleanFolder}`, name: cleanFolder, webViewLink: realFolderLink },
-      docsFolder: { id: `drive_${cleanFolder}_docs`, name: 'DOCS', webViewLink: realFolderLink },
-      mediaFolder: { id: `drive_${cleanFolder}_media`, name: 'MEDIA', webViewLink: realFolderLink },
-      photosFolder: { id: `drive_${cleanFolder}_photos`, name: 'PHOTOS', webViewLink: realFolderLink },
-      videosFolder: { id: `drive_${cleanFolder}_videos`, name: 'VIDEOS', webViewLink: realFolderLink },
-      submitFolder: { id: `drive_${cleanFolder}_submit`, name: 'SUBMIT', webViewLink: realFolderLink },
+      vehicleFolder: { id: `drive_${cleanFolder}`, name: cleanFolder, webViewLink: `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder)}` },
+      docsFolder: { id: `drive_${cleanFolder}_docs`, name: 'DOCS', webViewLink: `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' DOCS')}` },
+      mediaFolder: { id: `drive_${cleanFolder}_media`, name: 'MEDIA', webViewLink: `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' MEDIA')}` },
+      photosFolder: { id: `drive_${cleanFolder}_photos`, name: 'PHOTOS', webViewLink: `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' PHOTOS')}` },
+      videosFolder: { id: `drive_${cleanFolder}_videos`, name: 'VIDEOS', webViewLink: `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' VIDEOS')}` },
+      submitFolder: { id: `drive_${cleanFolder}_submit`, name: 'SUBMIT', webViewLink: `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' SUBMIT')}` },
     };
   }
 }

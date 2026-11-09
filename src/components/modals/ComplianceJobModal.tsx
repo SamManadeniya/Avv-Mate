@@ -309,7 +309,21 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             fileObject: targetFile,
             docType,
             category: isComplianceDoc ? 'docs' : isVid ? 'videos' : 'photos',
-          }]).then(() => {
+          }]).then((syncRes) => {
+            if (syncRes.uploadedFiles) {
+              const up = syncRes.uploadedFiles[docType] || syncRes.uploadedFiles[targetFile.name];
+              if (up?.webViewLink) {
+                setAttachments(prev => ({
+                  ...prev,
+                  [docType]: {
+                    ...(prev[docType] || {}),
+                    file_url: up.webViewLink,
+                    drive_file_url: up.webViewLink,
+                    webViewLink: up.webViewLink,
+                  }
+                }));
+              }
+            }
             setDriveFeedback(`✓ Auto-saved ${targetFile.name} to Google Drive (${folderNo}/${folderLabel})`);
             showUploadToast('success', `✓ Google Drive folder ready & ${docTitle} (${targetFile.name}) uploaded to ${folderNo}/${folderLabel}!`);
           }).catch(e => {
@@ -354,7 +368,31 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const handleViewAttachment = async (docType: DocType, att: any) => {
     if (!att) return;
 
-    // 1. Live file object in memory: create fresh URL to view immediately
+    const rootFolderId = '12-jOytHtiBFRMmg7ce2s0FNEYEPXzXh5';
+    const cleanFolder = (folderNo || jobToEdit?.folder_no || '').toUpperCase().trim();
+
+    const isDirectUsableUrl = (url?: string) => {
+      if (!url || typeof url !== 'string') return false;
+      if (url.startsWith('blob:')) return false;
+      if (url.includes(rootFolderId)) return false;
+      return /^https?:\/\//i.test(url);
+    };
+
+    // 1. Direct file link if available (Google Drive direct file view link or Supabase URL)
+    if (isDirectUsableUrl(att.drive_file_url)) {
+      window.open(att.drive_file_url, '_blank');
+      return;
+    }
+    if (isDirectUsableUrl(att.webViewLink)) {
+      window.open(att.webViewLink, '_blank');
+      return;
+    }
+    if (isDirectUsableUrl(att.file_url)) {
+      window.open(att.file_url, '_blank');
+      return;
+    }
+
+    // 2. If we have the live File / Blob object in memory, open fresh preview tab immediately
     const fileObj = att._fileObject || att.fileObject;
     if (fileObj instanceof Blob || fileObj instanceof File) {
       const freshBlobUrl = URL.createObjectURL(fileObj);
@@ -362,56 +400,47 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       return;
     }
 
-    // 2. Direct Google Drive file or folder web link
-    if (att.drive_file_url || att.webViewLink) {
-      window.open(att.drive_file_url || att.webViewLink, '_blank');
-      return;
-    }
-
-    // 3. Valid remote web link (http/https and NOT a dead local blob)
-    if (att.file_url && /^https?:\/\//i.test(att.file_url) && !att.file_url.startsWith('blob:')) {
-      window.open(att.file_url, '_blank');
-      return;
-    }
-
-    // 4. Try Google Drive hierarchy matching
-    const cleanFolder = (folderNo || jobToEdit?.folder_no || '').toUpperCase().trim();
+    // 3. Google Drive Hierarchy lookup: find exact file inside vehicle's folder
     if (cleanFolder) {
       try {
         const hierarchy = driveHierarchy || await googleDriveService.ensureVehicleFolderHierarchy(cleanFolder);
         const targetFolder = (docType === 'PHOTOS')
           ? hierarchy.photosFolder
+          : (docType as string === 'VIDEOS')
+          ? hierarchy.videosFolder
           : hierarchy.docsFolder;
 
-        if (targetFolder?.id && att.file_name) {
+        if (targetFolder?.id && !targetFolder.id.startsWith('drive_') && !targetFolder.id.includes(rootFolderId)) {
           const driveFiles = await googleDriveService.listFolderFiles(targetFolder.id);
-          const matched = driveFiles.find(f => f.name.toLowerCase() === att.file_name.toLowerCase())
+          const matched = driveFiles.find(f => f.name.toLowerCase() === (att.file_name || '').toLowerCase())
                        || driveFiles.find(f => f.name.toLowerCase().includes(docType.toLowerCase()));
-          if (matched?.webViewLink) {
+          if (matched?.webViewLink && isDirectUsableUrl(matched.webViewLink)) {
             window.open(matched.webViewLink, '_blank');
             return;
           }
         }
 
-        if (targetFolder?.webViewLink) {
+        if (targetFolder?.webViewLink && isDirectUsableUrl(targetFolder.webViewLink)) {
           window.open(targetFolder.webViewLink, '_blank');
           return;
         }
 
-        if (hierarchy.vehicleFolder?.webViewLink) {
+        if (hierarchy.vehicleFolder?.webViewLink && isDirectUsableUrl(hierarchy.vehicleFolder.webViewLink)) {
           window.open(hierarchy.vehicleFolder.webViewLink, '_blank');
           return;
         }
       } catch (_) {}
 
-      // Fallback: Google Drive search for this file or folder
-      const query = att.file_name || cleanFolder;
-      window.open(`https://drive.google.com/drive/search?q=${encodeURIComponent(query)}`, '_blank');
+      // 4. Exact targeted Google Drive Search:
+      // Search for specific vehicle folder and document type (e.g. "SVC1116 DC")
+      // Opens directly to the exact file/card in Google Drive without dumping into root
+      const searchTerms = [cleanFolder, docType].filter(Boolean).join(' ');
+      window.open(`https://drive.google.com/drive/search?q=${encodeURIComponent(searchTerms)}`, '_blank');
       return;
     }
 
-    if (att.file_url) {
-      window.open(att.file_url, '_blank');
+    if (att.file_name) {
+      window.open(`https://drive.google.com/drive/search?q=${encodeURIComponent(att.file_name)}`, '_blank');
     }
   };
 
@@ -520,7 +549,23 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
       if (googleDriveService.isConfigured() && driveDocsToSync.length > 0) {
         googleDriveService.syncJobAttachmentsToDrive(folderNo, driveDocsToSync)
-          .then(() => {
+          .then(syncRes => {
+            if (syncRes.uploadedFiles && Object.keys(syncRes.uploadedFiles).length > 0) {
+              setAttachments(prev => {
+                const updated = { ...prev };
+                Object.entries(syncRes.uploadedFiles!).forEach(([k, up]) => {
+                  if (updated[k as DocType]) {
+                    updated[k as DocType] = {
+                      ...updated[k as DocType],
+                      file_url: up.webViewLink,
+                      drive_file_url: up.webViewLink,
+                      webViewLink: up.webViewLink,
+                    };
+                  }
+                });
+                return updated;
+              });
+            }
             setDriveFeedback(`✓ Auto-saved ${driveDocsToSync.length} documents to Google Drive (${folderNo}/DOCS)`);
           })
           .catch(e => console.warn('Background Drive batch upload:', e));
@@ -1009,6 +1054,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         }
       }
 
+      let driveSyncRes: any = null;
+
       // Automatically create Drive folder tree and push attachments on save
       if (googleDriveService.isConfigured()) {
         const cleanNo = folderNo.toUpperCase().trim();
@@ -1025,7 +1072,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
           // 2. Upload/sync all files into their dedicated folders
           if (attList.length > 0) {
-            await googleDriveService.syncJobAttachmentsToDrive(cleanNo, attList);
+            driveSyncRes = await googleDriveService.syncJobAttachmentsToDrive(cleanNo, attList);
           }
 
           // 3. Upload all queued batch photos directly into MEDIA/PHOTOS
@@ -1059,13 +1106,17 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       // Reconstruct attachments map for savedJob
       const finalAttachments: any = { ...(savedJob.attachments || {}) };
       Object.entries(uploadedAttachments).forEach(([k, att]) => {
+        const driveUp = driveSyncRes?.uploadedFiles?.[k] || driveSyncRes?.uploadedFiles?.[att.name];
+        const directDriveUrl = driveUp?.webViewLink || (att as any).drive_file_url || (att as any).webViewLink;
         finalAttachments[k] = {
           id: `att_${folderNo}_${k}`,
           job_id: savedJob.id,
           doc_type: k,
           file_name: att.name,
           file_size: (att as any).file_size || att.fileObject?.size || 0,
-          file_url: att.url,
+          file_url: directDriveUrl || att.url,
+          drive_file_url: directDriveUrl || (att as any).drive_file_url,
+          webViewLink: directDriveUrl || (att as any).webViewLink,
           mime_type: att.mimeType,
           uploaded_at: new Date().toISOString(),
         };
