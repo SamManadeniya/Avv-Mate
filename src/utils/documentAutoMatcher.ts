@@ -331,3 +331,4 @@ export function autoMatchFiles(files: File[]): AutoMatchResult {
     totalFiles: files.length,
   };
 }
+
