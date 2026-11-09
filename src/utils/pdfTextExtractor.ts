@@ -193,31 +193,41 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
 
     // 3. Extract Model Report MRE #
     let mreNo: string | undefined;
-    // Match table row: Approved Model Report number MRE-000099 or Model Report number 000099
-    const tableMreMatch = cleanContentText.match(/(?:Approved\s+Model\s+Report(?:\s+number)?|Model\s+Report(?:\s+number)?)[^A-Z0-9]*(?:MRE[:\-_\s]*)?(\d{2,6})\b/i);
-    if (tableMreMatch) {
-      const numPart = tableMreMatch[1].replace(/[^0-9]/g, '');
-      mreNo = `MRE-${numPart.padStart(6, '0')}`;
+
+    // Prioritize explicit MRE prefix: MRE-000907, MRE 000907, MRE: 000907, MRE000907
+    const explicitMreMatches = Array.from(cleanContentText.matchAll(/\bMRE[:\-_\s]*([0-9]{2,6})\b/gi));
+    for (const match of explicitMreMatches) {
+      const numPart = match[1].replace(/[^0-9]/g, '');
+      if (parseInt(numPart, 10) > 0) {
+        mreNo = `MRE-${numPart.padStart(6, '0')}`;
+        break;
+      }
     }
 
+    // Fallback: table row "Approved Model Report number" followed specifically by MRE or valid non-zero digits
     if (!mreNo) {
-      const standaloneMreMatch = cleanContentText.match(/\bMRE[:\-_\s]*(\d{2,6})\b/i);
-      if (standaloneMreMatch) {
-        const numPart = standaloneMreMatch[1].replace(/[^0-9]/g, '');
-        mreNo = `MRE-${numPart.padStart(6, '0')}`;
+      const tableMreMatches = Array.from(cleanContentText.matchAll(/(?:Approved\s+Model\s+Report(?:\s+number)?|Model\s+Report(?:\s+number)?)[^A-Z0-9\n]{0,30}(?:MRE[:\-_\s]*)?([0-9]{2,6})\b/gi));
+      for (const match of tableMreMatches) {
+        const numPart = match[1].replace(/[^0-9]/g, '');
+        if (parseInt(numPart, 10) > 0) {
+          mreNo = `MRE-${numPart.padStart(6, '0')}`;
+          break;
+        }
       }
     }
 
     // Extract Vehicle Make & Model if present in table
     let make: string | undefined;
     let model: string | undefined;
-    const makeMatch = cleanContentText.match(/\bMake[^A-Za-z0-9]+([A-Za-z0-9\-]+)/i);
+    const makeMatch = cleanContentText.match(/\bMake[^A-Za-z0-9]+([A-Za-z0-9\-\s]{2,30}?)(?=\s*(?:\d+\s+)?\bModel\b|\r?\n|$)/i);
     if (makeMatch && !/^(details|number|rav|model)/i.test(makeMatch[1])) {
-      make = makeMatch[1].trim();
+      const candidateMake = makeMatch[1].trim();
+      if (candidateMake.length >= 2) make = candidateMake;
     }
-    const modelMatch = cleanContentText.match(/\bModel[^A-Za-z0-9]+([A-Za-z0-9\-]+)/i);
-    if (modelMatch && !/^(report|number|details|instruction)/i.test(modelMatch[1])) {
-      model = modelMatch[1].trim();
+    const modelMatch = cleanContentText.match(/\bModel[^A-Za-z0-9]+([A-Za-z0-9\-\s]{2,40}?)(?=\s*(?:\d+\s+)?\b(?:Variant|VIN|Vehicle|MODEL REPORT|version)\b|\r?\n|$)/i);
+    if (modelMatch && !/^(report|number|details|instruction|version)/i.test(modelMatch[1])) {
+      const candidateModel = modelMatch[1].trim();
+      if (candidateModel.length >= 2) model = candidateModel;
     }
 
     // 4. Identify Document Type from Content Text

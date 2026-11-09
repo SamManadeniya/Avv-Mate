@@ -86,6 +86,21 @@ export const DEFAULT_RAW_WORKSHOPS: RawWorkshop[] = [
 
 export const DEFAULT_MODEL_REPORTS: ModelReport[] = [
   {
+    mre_no: 'MRE-000907',
+    sev_no: 'SEV-000907',
+    make: 'BMW',
+    model: 'M340i xDrive Touring',
+    unique_id: 'UID-MRE-000907',
+    vcc: 'MA',
+    build_from: '2019-01-01',
+    build_to: '2026-12-31',
+    tare_kg: 1770,
+    power_kw: 285,
+    seats: 5,
+    author: 'Sydney Vehicle Compliance',
+    created_at: '2026-11-01T00:00:00.000Z',
+  },
+  {
     mre_no: 'MRE-000099',
     sev_no: 'SEV-000099',
     make: 'Nissan',

@@ -59,6 +59,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const [vin, setVin] = useState('');
   const [rawId, setRawId] = useState('');
   const [mreNo, setMreNo] = useState('');
+  const [detectedMake, setDetectedMake] = useState('');
+  const [detectedModel, setDetectedModel] = useState('');
   const [requestReceived, setRequestReceived] = useState('');
   const [videosUrl, setVideosUrl] = useState('');
   const [avvVerificationDate, setAvvVerificationDate] = useState('');
@@ -256,10 +258,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             const ws = workshops.find(w => w.raw_id.toUpperCase() === metadata.rawId!.toUpperCase());
             setRawId(ws ? ws.raw_id : metadata.rawId);
           }
-          if (metadata.mreNo && !mreNo) {
+          if (metadata.mreNo && metadata.mreNo !== 'MRE-000000' && (!mreNo || mreNo === 'MRE-000000')) {
             const mr = modelReports.find(m => m.mre_no.toUpperCase() === metadata.mreNo!.toUpperCase());
             setMreNo(mr ? mr.mre_no : metadata.mreNo);
           }
+          if (metadata.make) setDetectedMake(metadata.make);
+          if (metadata.model) setDetectedModel(metadata.model);
         } catch (_) {}
       }
 
@@ -428,10 +432,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       const ws = workshops.find(w => w.raw_id.toUpperCase() === result.extractedRawId!.toUpperCase());
       setRawId(ws ? ws.raw_id : result.extractedRawId);
     }
-    if (result.extractedMreNo && !mreNo) {
+    if (result.extractedMreNo && result.extractedMreNo !== 'MRE-000000' && (!mreNo || mreNo === 'MRE-000000')) {
       const mr = modelReports.find(m => m.mre_no.toUpperCase() === result.extractedMreNo!.toUpperCase());
       setMreNo(mr ? mr.mre_no : result.extractedMreNo);
     }
+    if (result.extractedMake) setDetectedMake(result.extractedMake);
+    if (result.extractedModel) setDetectedModel(result.extractedModel);
 
     setAutoSortMatches(result.matches);
     setIsAutoSortModalOpen(true);
@@ -1043,9 +1049,11 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       if (!savedJob.raw_workshop_name && currentWorkshop) {
         savedJob.raw_workshop_name = currentWorkshop.name;
       }
-      if (!savedJob.make && currentMre) {
-        savedJob.make = currentMre.make;
-        savedJob.model = currentMre.model;
+      if (!savedJob.make) {
+        savedJob.make = currentMre?.make || detectedMake || null;
+      }
+      if (!savedJob.model) {
+        savedJob.model = currentMre?.model || detectedModel || null;
       }
 
       // Reconstruct attachments map for savedJob
@@ -1263,11 +1271,12 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                       subLabel: `${m.make} ${m.model}${m.sev_no ? ` • SEV: ${m.sev_no}` : ''}`,
                       badge: m.vcc || undefined,
                     }));
-                    if (mreNo && !list.some(item => item.value.toUpperCase() === mreNo.toUpperCase())) {
+                    if (mreNo && mreNo !== 'MRE-000000' && !list.some(item => item.value.toUpperCase() === mreNo.toUpperCase())) {
+                      const displayDesc = (detectedMake || detectedModel) ? `${detectedMake} ${detectedModel}`.trim() : 'Extracted from Document';
                       list.unshift({
                         value: mreNo,
                         label: mreNo,
-                        subLabel: 'Extracted from Document',
+                        subLabel: displayDesc,
                         badge: undefined,
                       });
                     }
@@ -1277,11 +1286,18 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                   searchPlaceholder="Search by MRE #, make, model or SEV..."
                   emptyMessage="No model reports match your search"
                 />
-                {currentMre && (
+                {currentMre ? (
                   <p className="text-[11px] text-slate-500 mt-1 font-medium">
                     Make/Model: <span className="text-slate-800 font-semibold">{currentMre.make} {currentMre.model}</span> (SEV: {currentMre.sev_no || 'N/A'})
                   </p>
-                )}
+                ) : (detectedMake || detectedModel) ? (
+                  <p className="text-[11px] text-slate-500 mt-1 font-medium flex items-center gap-1.5">
+                    Make/Model: <span className="text-slate-800 font-semibold">{detectedMake} {detectedModel}</span>
+                    <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded text-[10px] font-bold border border-emerald-200">
+                      ✓ Auto-Extracted
+                    </span>
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
