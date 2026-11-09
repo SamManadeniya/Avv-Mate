@@ -222,6 +222,22 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     setErrorMessage('');
   }, [isOpen, jobToEdit, vehicles]);
 
+  // Helper to smartly map Make + Model strings to Model Reports (e.g. "BMW" + "M340i xDrive Touring" -> "MRE-000907")
+  const resolveMreFromMakeModel = (makeCandidate?: string, modelCandidate?: string): ModelReport | undefined => {
+    if (!makeCandidate || !modelCandidate) return undefined;
+    const cleanMake = makeCandidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanModel = modelCandidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!cleanMake || !cleanModel) return undefined;
+
+    return modelReports.find(m => {
+      const mMk = (m.make || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const mMd = (m.model || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (mMk === cleanMake && mMd === cleanModel) return true;
+      if (mMk === cleanMake && (mMd.includes(cleanModel) || cleanModel.includes(mMd))) return true;
+      return false;
+    });
+  };
+
   // Reactive Autocomplete: When VIN changes, lookup vehicle and prefill RAW ID and MRE
   const handleVinChange = (val: string) => {
     const cleanVin = val.toUpperCase().replace(/\s/g, '');
@@ -231,11 +247,28 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     if (match) {
       setMatchedVehicle(match);
       if (match.raw_id) setRawId(match.raw_id);
-      if (match.mre_no) setMreNo(match.mre_no);
+      if (match.mre_no && match.mre_no !== 'MRE-000000') {
+        setMreNo(match.mre_no);
+      } else if (match.make && match.model) {
+        const autoMre = resolveMreFromMakeModel(match.make, match.model);
+        if (autoMre) setMreNo(autoMre.mre_no);
+      }
+      if (match.make) setDetectedMake(match.make);
+      if (match.model) setDetectedModel(match.model);
     } else {
       setMatchedVehicle(null);
     }
   };
+
+  // Auto-resolve MRE from detected Make and Model whenever they become available
+  useEffect(() => {
+    if ((!mreNo || mreNo === 'MRE-000000') && detectedMake && detectedModel) {
+      const autoMre = resolveMreFromMakeModel(detectedMake, detectedModel);
+      if (autoMre) {
+        setMreNo(autoMre.mre_no);
+      }
+    }
+  }, [detectedMake, detectedModel, mreNo, modelReports]);
 
   // Handle file upload for a specific slot
   const handleFileUpload = async (docType: DocType, file: File) => {
@@ -258,12 +291,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             const ws = workshops.find(w => w.raw_id.toUpperCase() === metadata.rawId!.toUpperCase());
             setRawId(ws ? ws.raw_id : metadata.rawId);
           }
+          if (metadata.make) setDetectedMake(metadata.make);
+          if (metadata.model) setDetectedModel(metadata.model);
+
           if (metadata.mreNo && metadata.mreNo !== 'MRE-000000' && (!mreNo || mreNo === 'MRE-000000')) {
             const mr = modelReports.find(m => m.mre_no.toUpperCase() === metadata.mreNo!.toUpperCase());
             setMreNo(mr ? mr.mre_no : metadata.mreNo);
+          } else if ((!mreNo || mreNo === 'MRE-000000') && (metadata.make || detectedMake) && (metadata.model || detectedModel)) {
+            const autoMre = resolveMreFromMakeModel(metadata.make || detectedMake, metadata.model || detectedModel);
+            if (autoMre) setMreNo(autoMre.mre_no);
           }
-          if (metadata.make) setDetectedMake(metadata.make);
-          if (metadata.model) setDetectedModel(metadata.model);
         } catch (_) {}
       }
 
@@ -461,12 +498,16 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       const ws = workshops.find(w => w.raw_id.toUpperCase() === result.extractedRawId!.toUpperCase());
       setRawId(ws ? ws.raw_id : result.extractedRawId);
     }
+    if (result.extractedMake) setDetectedMake(result.extractedMake);
+    if (result.extractedModel) setDetectedModel(result.extractedModel);
+
     if (result.extractedMreNo && result.extractedMreNo !== 'MRE-000000' && (!mreNo || mreNo === 'MRE-000000')) {
       const mr = modelReports.find(m => m.mre_no.toUpperCase() === result.extractedMreNo!.toUpperCase());
       setMreNo(mr ? mr.mre_no : result.extractedMreNo);
+    } else if ((!mreNo || mreNo === 'MRE-000000') && (result.extractedMake || detectedMake) && (result.extractedModel || detectedModel)) {
+      const autoMre = resolveMreFromMakeModel(result.extractedMake || detectedMake, result.extractedModel || detectedModel);
+      if (autoMre) setMreNo(autoMre.mre_no);
     }
-    if (result.extractedMake) setDetectedMake(result.extractedMake);
-    if (result.extractedModel) setDetectedModel(result.extractedModel);
 
     setAutoSortMatches(result.matches);
     setIsAutoSortModalOpen(true);
@@ -1313,7 +1354,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                   Model Report (MRE) (Auto-filled from VIN, or search & select)
                 </label>
                 <SearchableSelect
-                  value={mreNo}
+                  value={mreNo === 'MRE-000000' ? '' : mreNo}
                   onChange={val => setMreNo(val)}
                   options={(() => {
                     const list = modelReports.map(m => ({

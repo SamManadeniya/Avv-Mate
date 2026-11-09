@@ -194,11 +194,12 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
     // 3. Extract Model Report MRE #
     let mreNo: string | undefined;
 
-    // Prioritize explicit MRE prefix: MRE-000907, MRE 000907, MRE: 000907, MRE000907
-    const explicitMreMatches = Array.from(cleanContentText.matchAll(/\bMRE[:\-_\s]*([0-9]{2,6})\b/gi));
+    // Prioritize explicit MRE prefix (including kerning/character spacing: "M R E - 0 0 0 9 0 7", "MRE-000907", "MRE 000907", "MRE000907")
+    const explicitMreMatches = Array.from(cleanContentText.matchAll(/\bM\s*R\s*E\s*[:\-_\s]*([0-9\s]{2,12})\b/gi));
     for (const match of explicitMreMatches) {
       const numPart = match[1].replace(/[^0-9]/g, '');
-      if (parseInt(numPart, 10) > 0) {
+      const num = parseInt(numPart, 10);
+      if (!isNaN(num) && num > 0) {
         mreNo = `MRE-${numPart.padStart(6, '0')}`;
         break;
       }
@@ -206,10 +207,11 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
 
     // Fallback: table row "Approved Model Report number" followed specifically by MRE or valid non-zero digits
     if (!mreNo) {
-      const tableMreMatches = Array.from(cleanContentText.matchAll(/(?:Approved\s+Model\s+Report(?:\s+number)?|Model\s+Report(?:\s+number)?)[^A-Z0-9\n]{0,30}(?:MRE[:\-_\s]*)?([0-9]{2,6})\b/gi));
+      const tableMreMatches = Array.from(cleanContentText.matchAll(/(?:Approved\s+Model\s+Report(?:\s+number)?|Model\s+Report(?:\s+number)?)[^A-Za-z0-9\n]{0,35}(?:M\s*R\s*E[:\-_\s]*)?([0-9\s]{2,12})\b/gi));
       for (const match of tableMreMatches) {
         const numPart = match[1].replace(/[^0-9]/g, '');
-        if (parseInt(numPart, 10) > 0) {
+        const num = parseInt(numPart, 10);
+        if (!isNaN(num) && num > 0) {
           mreNo = `MRE-${numPart.padStart(6, '0')}`;
           break;
         }

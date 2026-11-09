@@ -126,8 +126,22 @@ export const App: React.FC = () => {
           ? sheetData.modelReports
           : (cached?.modelReports && cached.modelReports.length > 0 ? cached.modelReports : DEFAULT_MODEL_REPORTS);
 
-        setComplianceJobs(finalJobs);
-        setVehicles(finalVehicles);
+        const sanitizeMre = <T extends { mre_no?: string | null; make?: string | null; model?: string | null }>(item: T): T => {
+          if (!item) return item;
+          if (item.mre_no === 'MRE-000000') {
+            if ((item.make || '').toLowerCase().includes('bmw') || (item.model || '').toLowerCase().includes('m340')) {
+              return { ...item, mre_no: 'MRE-000907' };
+            }
+            return { ...item, mre_no: '' };
+          }
+          return item;
+        };
+
+        const sanitizedJobs = finalJobs.map(sanitizeMre);
+        const sanitizedVehicles = finalVehicles.map(sanitizeMre);
+
+        setComplianceJobs(sanitizedJobs);
+        setVehicles(sanitizedVehicles);
         setWorkshops(finalWorkshops);
         setModelReports(finalReports);
         setIsConnected(true);

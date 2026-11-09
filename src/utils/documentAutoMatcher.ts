@@ -571,7 +571,7 @@ export async function autoMatchFilesWithContent(files: File[]): Promise<AutoMatc
         const metadata = await extractPdfTextAndMetadata(file);
         if (metadata.vin && !extractedVin) extractedVin = metadata.vin;
         if (metadata.rawId && !extractedRawId) extractedRawId = metadata.rawId;
-        if (metadata.mreNo && !extractedMreNo) extractedMreNo = metadata.mreNo;
+        if (metadata.mreNo && metadata.mreNo !== 'MRE-000000' && (!extractedMreNo || extractedMreNo === 'MRE-000000')) extractedMreNo = metadata.mreNo;
         if (metadata.make && !extractedMake) extractedMake = metadata.make;
         if (metadata.model && !extractedModel) extractedModel = metadata.model;
 
