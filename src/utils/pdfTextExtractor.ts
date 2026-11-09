@@ -5,6 +5,8 @@ export interface ExtractedPdfMetadata {
   vin?: string;
   rawId?: string;
   mreNo?: string;
+  make?: string;
+  model?: string;
   detectedDocType?: DocType;
   confidence: 'high' | 'medium' | 'low' | 'none';
   matchReason?: string;
@@ -140,10 +142,16 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
 
     // 1. Extract VIN #
     let vin: string | undefined;
-    const vinPrefixMatch = cleanContentText.match(/VIN[:\s#]+([A-HJ-NPR-Z0-9]{11,18})/i);
+    // Match: Vehicle Identification Number (VIN) 6ZZK... or VIN: 6ZZK... or VIN # 6ZZK...
+    const vinPrefixMatch = cleanContentText.match(/(?:VIN|Vehicle\s+Identification\s+Number)[^A-HJ-NPR-Z0-9]*([A-HJ-NPR-Z0-9]{11,18})/i);
     if (vinPrefixMatch) {
-      vin = vinPrefixMatch[1].toUpperCase();
-    } else {
+      const candidate = vinPrefixMatch[1].toUpperCase();
+      if (/[0-9]/.test(candidate) && /[A-Z]/.test(candidate)) {
+        vin = candidate;
+      }
+    }
+
+    if (!vin) {
       // Australian 6ZZ format or standard 17-char ISO VIN
       const isolatedVinMatch = cleanContentText.match(/\b(6ZZ[A-HJ-NPR-Z0-9]{14,15}|[A-HJ-NPR-Z0-9]{17})\b/i);
       if (isolatedVinMatch) {
@@ -155,7 +163,7 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
       }
     }
 
-    // Fallback Japanese Chassis format (e.g. ANH20-0012345, MNH10-123456)
+    // Fallback Japanese Chassis format (e.g. ZE1-060474, ANH20-0012345, MNH10-123456)
     if (!vin) {
       const chassisMatch = cleanContentText.match(/\b([A-Z0-9]{2,6}[-_][0-9]{5,8})\b/i);
       if (chassisMatch) {
@@ -165,18 +173,51 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
 
     // 2. Extract RAW Workshop ID
     let rawId: string | undefined;
-    const rawMatch = cleanContentText.match(/\bRAW[-_]?\d{3,6}\b/i);
+    const rawMatch = cleanContentText.match(/\bRAW[:\-_\s]*(\d{3,6})\b/i);
     if (rawMatch) {
-      const numPart = rawMatch[0].replace(/[^0-9]/g, '');
+      const numPart = rawMatch[1].replace(/[^0-9]/g, '');
       rawId = `RAW-${numPart.padStart(6, '0')}`;
+    }
+
+    // Check approval holder business names (e.g. from RAW Declaration Row 5)
+    if (!rawId) {
+      const upperText = cleanContentText.toUpperCase();
+      if (upperText.includes('SEAN PHAN')) {
+        rawId = 'RAW-000175';
+      } else if (upperText.includes('SYDNEY UNIQUE')) {
+        rawId = 'RAW-000070';
+      } else if (upperText.includes('NINETYNINE') || upperText.includes('NINETY NINE')) {
+        rawId = 'RAW-000245';
+      }
     }
 
     // 3. Extract Model Report MRE #
     let mreNo: string | undefined;
-    const mreMatch = cleanContentText.match(/\bMRE[-_]?\d{3,6}\b/i);
-    if (mreMatch) {
-      const numPart = mreMatch[0].replace(/[^0-9]/g, '');
+    // Match table row: Approved Model Report number MRE-000099 or Model Report number 000099
+    const tableMreMatch = cleanContentText.match(/(?:Approved\s+Model\s+Report(?:\s+number)?|Model\s+Report(?:\s+number)?)[^A-Z0-9]*(?:MRE[:\-_\s]*)?(\d{2,6})\b/i);
+    if (tableMreMatch) {
+      const numPart = tableMreMatch[1].replace(/[^0-9]/g, '');
       mreNo = `MRE-${numPart.padStart(6, '0')}`;
+    }
+
+    if (!mreNo) {
+      const standaloneMreMatch = cleanContentText.match(/\bMRE[:\-_\s]*(\d{2,6})\b/i);
+      if (standaloneMreMatch) {
+        const numPart = standaloneMreMatch[1].replace(/[^0-9]/g, '');
+        mreNo = `MRE-${numPart.padStart(6, '0')}`;
+      }
+    }
+
+    // Extract Vehicle Make & Model if present in table
+    let make: string | undefined;
+    let model: string | undefined;
+    const makeMatch = cleanContentText.match(/\bMake[^A-Za-z0-9]+([A-Za-z0-9\-]+)/i);
+    if (makeMatch && !/^(details|number|rav|model)/i.test(makeMatch[1])) {
+      make = makeMatch[1].trim();
+    }
+    const modelMatch = cleanContentText.match(/\bModel[^A-Za-z0-9]+([A-Za-z0-9\-]+)/i);
+    if (modelMatch && !/^(report|number|details|instruction)/i.test(modelMatch[1])) {
+      model = modelMatch[1].trim();
     }
 
     // 4. Identify Document Type from Content Text
@@ -211,7 +252,10 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
       matchReason = 'Content contains "Concessional RAV Entry Approval"';
     } else if (
       lowerContent.includes('export certificate') ||
+      lowerContent.includes('export cer') ||
       lowerContent.includes('certificate of export') ||
+      lowerContent.includes('yushutsu') ||
+      lowerContent.includes('shoumeisho') ||
       lowerContent.includes('ministry of land, infrastructure')
     ) {
       detectedDocType = 'EC';
@@ -238,7 +282,9 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
       lowerContent.includes('raw declaration') ||
       lowerContent.includes('workshop declaration') ||
       lowerContent.includes('declaration of compliance') ||
-      lowerContent.includes('registered automotive workshop')
+      lowerContent.includes('registered automotive workshop') ||
+      lowerContent.includes('checks conducted by the raw') ||
+      (lowerContent.includes('approval holder') && lowerContent.includes('model report details'))
     ) {
       detectedDocType = 'RAW_DECLA';
       confidence = 'high';
@@ -268,6 +314,8 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
       vin,
       rawId,
       mreNo,
+      make,
+      model,
       detectedDocType,
       confidence,
       matchReason,

@@ -120,13 +120,19 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 </span>
               )}
             </div>
+          ) : value ? (
+            <div className="min-w-0 flex-1 flex items-center gap-1.5 truncate">
+              <span className="font-mono font-semibold text-slate-800 text-xs sm:text-sm">
+                {value}
+              </span>
+            </div>
           ) : (
             <span className="text-slate-400 text-sm font-sans">{placeholder}</span>
           )}
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {selectedOption && !disabled && (
+          {(selectedOption || value) && !disabled && (
             <span
               onClick={handleClear}
               title="Clear selection"

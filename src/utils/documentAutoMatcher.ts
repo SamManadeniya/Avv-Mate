@@ -22,6 +22,8 @@ export interface AutoMatchResult {
   extractedVin?: string;
   extractedRawId?: string;
   extractedMreNo?: string;
+  extractedMake?: string;
+  extractedModel?: string;
 }
 
 // 8 Core Compliance Documents (excluding PHOTOS which is batch media)
@@ -60,14 +62,30 @@ function scoreDocSlot(baseName: string, words: string[], type: DocType): { score
     }
 
     case 'EC': {
-      if (text.includes('export cert') || text.includes('export_cert') || text.includes('export certificate')) {
+      if (
+        text.includes('export cer') ||
+        text.includes('export cert') ||
+        text.includes('export_cer') ||
+        text.includes('export_cert') ||
+        text.includes('export certificate') ||
+        text.includes('certificate of export') ||
+        text.includes('exp cert') ||
+        text.includes('exp cer') ||
+        text.includes('exp_cert') ||
+        text.includes('exp_cer') ||
+        text.includes('yushutsu') ||
+        text.includes('shoumeisho')
+      ) {
         return { score: 100, reason: 'Matched "Export Certificate"' };
       }
       if (words.includes('export') && !words.includes('import')) {
-        return { score: 85, reason: 'Matched "Export"' };
+        return { score: 90, reason: 'Matched "Export"' };
       }
       if (words.includes('ec') && !words.includes('check') && !words.includes('decl') && !words.includes('tech')) {
-        return { score: 80, reason: 'Matched abbreviation "EC"' };
+        return { score: 85, reason: 'Matched abbreviation "EC"' };
+      }
+      if (words.includes('cer') || words.includes('cert') || words.includes('certificate')) {
+        return { score: 70, reason: 'Matched "Certificate"' };
       }
       if (/^(0?2)[_\-\s\.]/.test(baseName)) return { score: 45, reason: 'Matched numeric prefix #2' };
       break;
@@ -227,10 +245,12 @@ export function autoMatchFiles(files: File[]): AutoMatchResult {
       }
     });
 
-    // 3. Check for Compliance Photos (if image file or has photo keywords)
+    // 3. Check for Compliance Photos & Image Documents
     if (isImageFile) {
-      // If filename clearly specifies a compliance document (e.g. CRE.jpg, Inspection.png), doc score wins if >= 75
-      if (topDocType && highestScore >= 75) {
+      const totalImagesInBatch = files.filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(f.name)).length;
+
+      // If filename clearly specifies a compliance document (e.g. CRE.jpg, Export_Cer.png), doc score wins
+      if (topDocType && highestScore >= 60) {
         candidates.push({
           id,
           file,
@@ -242,13 +262,65 @@ export function autoMatchFiles(files: File[]): AutoMatchResult {
         return;
       }
 
+      // If only 1-3 images in batch, a single photo is commonly an Export Certificate or Inspection photo
+      if (totalImagesInBatch <= 3) {
+        if (topDocType && highestScore >= 40) {
+          candidates.push({
+            id,
+            file,
+            bestTarget: topDocType,
+            score: highestScore,
+            reason: bestReason,
+            isMedia: false,
+          });
+          return;
+        }
+
+        const hasEc = candidates.some(c => c.bestTarget === 'EC');
+        if (!hasEc) {
+          candidates.push({
+            id,
+            file,
+            bestTarget: 'EC',
+            score: 75,
+            reason: 'Single image detected (commonly Export Certificate photo; review slot)',
+            isMedia: false,
+          });
+          return;
+        }
+
+        const hasDc = candidates.some(c => c.bestTarget === 'DC');
+        if (!hasDc) {
+          candidates.push({
+            id,
+            file,
+            bestTarget: 'DC',
+            score: 65,
+            reason: 'Single image detected (review if Damage or Corrosion photo)',
+            isMedia: false,
+          });
+          return;
+        }
+
+        candidates.push({
+          id,
+          file,
+          bestTarget: 'PHOTOS',
+          score: 60,
+          reason: 'Image file (review if Photo or Document)',
+          isMedia: true,
+        });
+        return;
+      }
+
+      // Batch photo set (4+ images)
       const hasPhotoKeyword = words.includes('photo') || words.includes('photos') || words.includes('pic') || words.includes('pics') || words.includes('image') || words.includes('batch');
       candidates.push({
         id,
         file,
         bestTarget: 'PHOTOS',
-        score: hasPhotoKeyword ? 95 : 65,
-        reason: hasPhotoKeyword ? 'Matched "Photos" keyword' : 'Image file assigned to Compliance Photos slot',
+        score: hasPhotoKeyword ? 98 : 95,
+        reason: `${totalImagesInBatch} batch compliance photos detected`,
         isMedia: true,
       });
       return;
@@ -370,6 +442,8 @@ export async function autoMatchFilesWithContent(files: File[]): Promise<AutoMatc
   let extractedVin: string | undefined;
   let extractedRawId: string | undefined;
   let extractedMreNo: string | undefined;
+  let extractedMake: string | undefined;
+  let extractedModel: string | undefined;
 
   for (let index = 0; index < files.length; index++) {
     const file = files[index];
@@ -411,9 +485,11 @@ export async function autoMatchFilesWithContent(files: File[]): Promise<AutoMatc
       }
     });
 
-    // 3. Check for Compliance Photos
+    // 3. Check for Compliance Photos & Image Documents
     if (isImageFile) {
-      if (topDocType && highestScore >= 75) {
+      const totalImagesInBatch = files.filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(f.name)).length;
+
+      if (topDocType && highestScore >= 60) {
         candidates.push({
           id,
           file,
@@ -425,13 +501,65 @@ export async function autoMatchFilesWithContent(files: File[]): Promise<AutoMatc
         continue;
       }
 
+      // If only 1-3 images in batch, a single photo is commonly an Export Certificate or Inspection photo
+      if (totalImagesInBatch <= 3) {
+        if (topDocType && highestScore >= 40) {
+          candidates.push({
+            id,
+            file,
+            bestTarget: topDocType,
+            score: highestScore,
+            reason: bestReason,
+            isMedia: false,
+          });
+          continue;
+        }
+
+        const hasEc = candidates.some(c => c.bestTarget === 'EC');
+        if (!hasEc) {
+          candidates.push({
+            id,
+            file,
+            bestTarget: 'EC',
+            score: 75,
+            reason: 'Single image detected (commonly Export Certificate photo; review slot)',
+            isMedia: false,
+          });
+          continue;
+        }
+
+        const hasDc = candidates.some(c => c.bestTarget === 'DC');
+        if (!hasDc) {
+          candidates.push({
+            id,
+            file,
+            bestTarget: 'DC',
+            score: 65,
+            reason: 'Single image detected (review if Damage or Corrosion photo)',
+            isMedia: false,
+          });
+          continue;
+        }
+
+        candidates.push({
+          id,
+          file,
+          bestTarget: 'PHOTOS',
+          score: 60,
+          reason: 'Image file (review if Photo or Document)',
+          isMedia: true,
+        });
+        continue;
+      }
+
+      // Batch photo set (4+ images)
       const hasPhotoKeyword = words.includes('photo') || words.includes('photos') || words.includes('pic') || words.includes('pics') || words.includes('image') || words.includes('batch');
       candidates.push({
         id,
         file,
         bestTarget: 'PHOTOS',
-        score: hasPhotoKeyword ? 95 : 65,
-        reason: hasPhotoKeyword ? 'Matched "Photos" keyword' : 'Image file assigned to Compliance Photos slot',
+        score: hasPhotoKeyword ? 98 : 95,
+        reason: `${totalImagesInBatch} batch compliance photos detected`,
         isMedia: true,
       });
       continue;
@@ -444,6 +572,8 @@ export async function autoMatchFilesWithContent(files: File[]): Promise<AutoMatc
         if (metadata.vin && !extractedVin) extractedVin = metadata.vin;
         if (metadata.rawId && !extractedRawId) extractedRawId = metadata.rawId;
         if (metadata.mreNo && !extractedMreNo) extractedMreNo = metadata.mreNo;
+        if (metadata.make && !extractedMake) extractedMake = metadata.make;
+        if (metadata.model && !extractedModel) extractedModel = metadata.model;
 
         // If filename alone was inconclusive, use content-detected document type!
         if (metadata.detectedDocType && (!topDocType || highestScore < 75)) {
@@ -546,6 +676,8 @@ export async function autoMatchFilesWithContent(files: File[]): Promise<AutoMatc
     extractedVin,
     extractedRawId,
     extractedMreNo,
+    extractedMake,
+    extractedModel,
   };
 }
 

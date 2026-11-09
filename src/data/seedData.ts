@@ -86,6 +86,21 @@ export const DEFAULT_RAW_WORKSHOPS: RawWorkshop[] = [
 
 export const DEFAULT_MODEL_REPORTS: ModelReport[] = [
   {
+    mre_no: 'MRE-000099',
+    sev_no: 'SEV-000099',
+    make: 'Nissan',
+    model: 'Leaf',
+    unique_id: 'UID-MRE-000099',
+    vcc: 'MA',
+    build_from: '2017-01-01',
+    build_to: '2026-12-31',
+    tare_kg: 1530,
+    power_kw: 110,
+    seats: 5,
+    author: 'Sydney Vehicle Compliance',
+    created_at: '2026-11-01T00:00:00.000Z',
+  },
+  {
     mre_no: 'MRE-000008',
     sev_no: 'SEV-000696',
     make: 'Toyota',

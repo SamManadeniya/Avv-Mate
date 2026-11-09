@@ -254,11 +254,11 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           }
           if (metadata.rawId && !rawId) {
             const ws = workshops.find(w => w.raw_id.toUpperCase() === metadata.rawId!.toUpperCase());
-            if (ws) setRawId(ws.raw_id);
+            setRawId(ws ? ws.raw_id : metadata.rawId);
           }
           if (metadata.mreNo && !mreNo) {
             const mr = modelReports.find(m => m.mre_no.toUpperCase() === metadata.mreNo!.toUpperCase());
-            if (mr) setMreNo(mr.mre_no);
+            setMreNo(mr ? mr.mre_no : metadata.mreNo);
           }
         } catch (_) {}
       }
@@ -347,6 +347,70 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     }
   };
 
+  const handleViewAttachment = async (docType: DocType, att: any) => {
+    if (!att) return;
+
+    // 1. Live file object in memory: create fresh URL to view immediately
+    const fileObj = att._fileObject || att.fileObject;
+    if (fileObj instanceof Blob || fileObj instanceof File) {
+      const freshBlobUrl = URL.createObjectURL(fileObj);
+      window.open(freshBlobUrl, '_blank');
+      return;
+    }
+
+    // 2. Direct Google Drive file or folder web link
+    if (att.drive_file_url || att.webViewLink) {
+      window.open(att.drive_file_url || att.webViewLink, '_blank');
+      return;
+    }
+
+    // 3. Valid remote web link (http/https and NOT a dead local blob)
+    if (att.file_url && /^https?:\/\//i.test(att.file_url) && !att.file_url.startsWith('blob:')) {
+      window.open(att.file_url, '_blank');
+      return;
+    }
+
+    // 4. Try Google Drive hierarchy matching
+    const cleanFolder = (folderNo || jobToEdit?.folder_no || '').toUpperCase().trim();
+    if (cleanFolder) {
+      try {
+        const hierarchy = driveHierarchy || await googleDriveService.ensureVehicleFolderHierarchy(cleanFolder);
+        const targetFolder = (docType === 'PHOTOS')
+          ? hierarchy.photosFolder
+          : hierarchy.docsFolder;
+
+        if (targetFolder?.id && att.file_name) {
+          const driveFiles = await googleDriveService.listFolderFiles(targetFolder.id);
+          const matched = driveFiles.find(f => f.name.toLowerCase() === att.file_name.toLowerCase())
+                       || driveFiles.find(f => f.name.toLowerCase().includes(docType.toLowerCase()));
+          if (matched?.webViewLink) {
+            window.open(matched.webViewLink, '_blank');
+            return;
+          }
+        }
+
+        if (targetFolder?.webViewLink) {
+          window.open(targetFolder.webViewLink, '_blank');
+          return;
+        }
+
+        if (hierarchy.vehicleFolder?.webViewLink) {
+          window.open(hierarchy.vehicleFolder.webViewLink, '_blank');
+          return;
+        }
+      } catch (_) {}
+
+      // Fallback: Google Drive search for this file or folder
+      const query = att.file_name || cleanFolder;
+      window.open(`https://drive.google.com/drive/search?q=${encodeURIComponent(query)}`, '_blank');
+      return;
+    }
+
+    if (att.file_url) {
+      window.open(att.file_url, '_blank');
+    }
+  };
+
   // Batch Attach & Auto-Sort Handlers with Deep PDF Inspection & Auto-Fill
   const handleFilesSelectedForAutoSort = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
@@ -362,11 +426,11 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     }
     if (result.extractedRawId && !rawId) {
       const ws = workshops.find(w => w.raw_id.toUpperCase() === result.extractedRawId!.toUpperCase());
-      if (ws) setRawId(ws.raw_id);
+      setRawId(ws ? ws.raw_id : result.extractedRawId);
     }
     if (result.extractedMreNo && !mreNo) {
       const mr = modelReports.find(m => m.mre_no.toUpperCase() === result.extractedMreNo!.toUpperCase());
-      if (mr) setMreNo(mr.mre_no);
+      setMreNo(mr ? mr.mre_no : result.extractedMreNo);
     }
 
     setAutoSortMatches(result.matches);
@@ -817,7 +881,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
     try {
       let savedJob: ComplianceJob;
-      const uploadedAttachments: Record<string, { name: string; url: string; mimeType: string; docType: DocType; fileObject?: File }> = {};
+      const uploadedAttachments: Record<string, { name: string; url: string; mimeType: string; docType: DocType; fileObject?: File; file_size?: number }> = {};
 
       if (jobToEdit) {
         try {
@@ -858,8 +922,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             uploadedAttachments[docKey] = {
               name: att.file_name,
               url: att.file_url,
+              file_size: att.file_size || att.size || att._fileObject?.size || 0,
               mimeType: att.mime_type || 'application/pdf',
               docType: docKey as DocType,
+              fileObject: att._fileObject,
             };
           }
         }
@@ -909,6 +975,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               uploadedAttachments[docKey] = {
                 name: uploadedAtt.file_name,
                 url: uploadedAtt.file_url,
+                file_size: uploadedAtt.file_size || fileObj.size,
                 mimeType: uploadedAtt.mime_type || att.mime_type || 'application/pdf',
                 docType: docKey as DocType,
                 fileObject: fileObj,
@@ -918,6 +985,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
               uploadedAttachments[docKey] = {
                 name: att.file_name,
                 url: att.file_url,
+                file_size: att.file_size || fileObj.size,
                 mimeType: att.mime_type || 'application/pdf',
                 docType: docKey as DocType,
                 fileObject: fileObj,
@@ -927,6 +995,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             uploadedAttachments[docKey] = {
               name: att.file_name,
               url: att.file_url,
+              file_size: att.file_size || att.size || 0,
               mimeType: att.mime_type || 'application/pdf',
               docType: docKey as DocType,
             };
@@ -987,6 +1056,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           job_id: savedJob.id,
           doc_type: k,
           file_name: att.name,
+          file_size: (att as any).file_size || att.fileObject?.size || 0,
           file_url: att.url,
           mime_type: att.mimeType,
           uploaded_at: new Date().toISOString(),
@@ -1150,12 +1220,23 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 <SearchableSelect
                   value={rawId}
                   onChange={val => setRawId(val)}
-                  options={workshops.map(w => ({
-                    value: w.raw_id,
-                    label: w.raw_id,
-                    subLabel: w.name,
-                    badge: w.contact_phone || undefined,
-                  }))}
+                  options={(() => {
+                    const list = workshops.map(w => ({
+                      value: w.raw_id,
+                      label: w.raw_id,
+                      subLabel: w.name,
+                      badge: w.contact_phone || undefined,
+                    }));
+                    if (rawId && !list.some(item => item.value.toUpperCase() === rawId.toUpperCase())) {
+                      list.unshift({
+                        value: rawId,
+                        label: rawId,
+                        subLabel: 'Extracted from Document',
+                        badge: undefined,
+                      });
+                    }
+                    return list;
+                  })()}
                   placeholder="-- Select Workshop --"
                   searchPlaceholder="Search by RAW ID or workshop name..."
                   emptyMessage="No workshops match your search"
@@ -1175,12 +1256,23 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                 <SearchableSelect
                   value={mreNo}
                   onChange={val => setMreNo(val)}
-                  options={modelReports.map(m => ({
-                    value: m.mre_no,
-                    label: m.mre_no,
-                    subLabel: `${m.make} ${m.model}${m.sev_no ? ` • SEV: ${m.sev_no}` : ''}`,
-                    badge: m.vcc || undefined,
-                  }))}
+                  options={(() => {
+                    const list = modelReports.map(m => ({
+                      value: m.mre_no,
+                      label: m.mre_no,
+                      subLabel: `${m.make} ${m.model}${m.sev_no ? ` • SEV: ${m.sev_no}` : ''}`,
+                      badge: m.vcc || undefined,
+                    }));
+                    if (mreNo && !list.some(item => item.value.toUpperCase() === mreNo.toUpperCase())) {
+                      list.unshift({
+                        value: mreNo,
+                        label: mreNo,
+                        subLabel: 'Extracted from Document',
+                        badge: undefined,
+                      });
+                    }
+                    return list;
+                  })()}
                   placeholder="-- Select MRE --"
                   searchPlaceholder="Search by MRE #, make, model or SEV..."
                   emptyMessage="No model reports match your search"
@@ -1471,8 +1563,14 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                           <p className="font-semibold text-slate-800 truncate" title={att.file_name}>
                             {att.file_name}
                           </p>
-                          <p className="text-slate-400 font-mono">
-                            {formatBytes(att.file_size)}
+                          <p className="text-slate-400 font-mono text-[10px] flex items-center gap-1.5">
+                            {att.file_size && att.file_size > 0 ? (
+                              <span>{formatBytes(att.file_size)}</span>
+                            ) : att._fileObject?.size ? (
+                              <span>{formatBytes(att._fileObject.size)}</span>
+                            ) : (
+                              <span className="text-emerald-600 font-sans font-medium">Ready in Google Drive</span>
+                            )}
                           </p>
                         </div>
                       )}
@@ -1500,14 +1598,13 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
                     <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-200/60">
                       {att ? (
                         <>
-                          <a
-                            href={att.file_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 rounded border border-sky-200 transition"
+                          <button
+                            type="button"
+                            onClick={() => handleViewAttachment(doc.type, att)}
+                            className="flex-1 inline-flex items-center justify-center gap-1 py-1 px-2 text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 rounded border border-sky-200 transition cursor-pointer"
                           >
                             <ExternalLink className="w-3 h-3" /> View
-                          </a>
+                          </button>
                           {isPhotos && (
                             <label className={`p-1 rounded border border-sky-200 cursor-pointer transition ${
                               isBatchUploading
