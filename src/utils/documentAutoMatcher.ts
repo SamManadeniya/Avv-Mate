@@ -1,7 +1,7 @@
 import type { DocType } from '../types';
-import { extractPdfTextAndMetadata } from './pdfTextExtractor';
+import { processBatchIntelligently } from './documentIntelligence';
 
-export type AutoMatchTarget = DocType | 'VIDEOS' | 'IGNORE';
+export type AutoMatchTarget = DocType | 'PHOTOS' | 'VIDEOS' | 'IGNORE';
 
 export interface AutoMatchFile {
   id: string;
@@ -435,259 +435,48 @@ export function autoMatchFiles(files: File[]): AutoMatchResult {
 }
 
 /**
- * Asynchronous Auto-Matcher with Deep PDF Content Inspection:
- * Reads inside digital PDFs when filenames are generic or unrenamed (e.g. scan001.pdf, doc.pdf),
- * and extracts VIN, RAW Workshop ID, and Model Report MRE # for Section 1 smart autofill.
+ * Intelligent Multi-File Auto-Matcher & Content Inspector:
+ * Integrates True Magic-Byte Signatures, Visual Document-vs-Photo Analysis,
+ * Native PDF Stream Extraction, and WebAssembly Tesseract OCR for Scanned Pages.
  */
-export async function autoMatchFilesWithContent(files: File[]): Promise<AutoMatchResult> {
-  const candidates: Array<{
-    id: string;
-    file: File;
-    bestTarget: AutoMatchTarget;
-    score: number;
-    reason: string;
-    isMedia: boolean;
-  }> = [];
-
-  let extractedVin: string | undefined;
-  let extractedRawId: string | undefined;
-  let extractedMreNo: string | undefined;
-  let extractedMake: string | undefined;
-  let extractedModel: string | undefined;
-
-  for (let index = 0; index < files.length; index++) {
-    const file = files[index];
-    const id = `match_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 6)}`;
-    const fileName = file.name;
-    const lowerName = fileName.toLowerCase();
-    const baseName = lowerName.replace(/\.[^/.]+$/, '');
-    const cleanText = baseName.replace(/[\s_\-\.\+\(\)\[\]]+/g, ' ');
-    const words = cleanText.split(/\s+/).filter(Boolean);
-
-    const isVideoFile = file.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm)$/i.test(fileName);
-    const isImageFile = file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(fileName);
-    const isPdfFile = file.type === 'application/pdf' || /\.pdf$/i.test(fileName);
-
-    // 1. Check for Videos
-    if (isVideoFile || words.includes('video') || words.includes('videos') || words.includes('clip')) {
-      candidates.push({
-        id,
-        file,
-        bestTarget: 'VIDEOS',
-        score: 100,
-        reason: 'Detected video format or keyword (Inspection Video)',
-        isMedia: true,
-      });
-      continue;
-    }
-
-    // 2. Score by filename first
-    let topDocType: DocType | null = null;
-    let highestScore = 0;
-    let bestReason = '';
-
-    CORE_DOC_SLOTS.forEach(({ type }) => {
-      const { score, reason } = scoreDocSlot(baseName, words, type);
-      if (score > highestScore) {
-        highestScore = score;
-        topDocType = type;
-        bestReason = reason;
-      }
-    });
-
-    // 3. Check for Compliance Photos & Image Documents
-    if (isImageFile) {
-      const totalImagesInBatch = files.filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|heic)$/i.test(f.name)).length;
-
-      if (topDocType && highestScore >= 60) {
-        candidates.push({
-          id,
-          file,
-          bestTarget: topDocType,
-          score: highestScore,
-          reason: bestReason,
-          isMedia: false,
-        });
-        continue;
-      }
-
-      // If only 1-3 images in batch, a single photo is commonly an Export Certificate or Inspection photo
-      if (totalImagesInBatch <= 3) {
-        if (topDocType && highestScore >= 40) {
-          candidates.push({
-            id,
-            file,
-            bestTarget: topDocType,
-            score: highestScore,
-            reason: bestReason,
-            isMedia: false,
-          });
-          continue;
-        }
-
-        const hasEc = candidates.some(c => c.bestTarget === 'EC');
-        if (!hasEc) {
-          candidates.push({
-            id,
-            file,
-            bestTarget: 'EC',
-            score: 75,
-            reason: 'Single image detected (commonly Export Certificate photo; review slot)',
-            isMedia: false,
-          });
-          continue;
-        }
-
-        const hasDc = candidates.some(c => c.bestTarget === 'DC');
-        if (!hasDc) {
-          candidates.push({
-            id,
-            file,
-            bestTarget: 'DC',
-            score: 65,
-            reason: 'Single image detected (review if Damage or Corrosion photo)',
-            isMedia: false,
-          });
-          continue;
-        }
-
-        candidates.push({
-          id,
-          file,
-          bestTarget: 'PHOTOS',
-          score: 60,
-          reason: 'Image file (review if Photo or Document)',
-          isMedia: true,
-        });
-        continue;
-      }
-
-      // Batch photo set (4+ images)
-      const hasPhotoKeyword = words.includes('photo') || words.includes('photos') || words.includes('pic') || words.includes('pics') || words.includes('image') || words.includes('batch');
-      candidates.push({
-        id,
-        file,
-        bestTarget: 'PHOTOS',
-        score: hasPhotoKeyword ? 98 : 95,
-        reason: `${totalImagesInBatch} batch compliance photos detected`,
-        isMedia: true,
-      });
-      continue;
-    }
-
-    // 4. If it's a PDF file, perform Deep Content Inspection to extract text, VIN, RAW ID, MRE #
-    if (isPdfFile) {
-      try {
-        const metadata = await extractPdfTextAndMetadata(file);
-        if (metadata.vin && !extractedVin) extractedVin = metadata.vin;
-        if (metadata.rawId && !extractedRawId) extractedRawId = metadata.rawId;
-        if (metadata.mreNo && metadata.mreNo !== 'MRE-000000' && (!extractedMreNo || extractedMreNo === 'MRE-000000')) extractedMreNo = metadata.mreNo;
-        if (metadata.make && !extractedMake) extractedMake = metadata.make;
-        if (metadata.model && !extractedModel) extractedModel = metadata.model;
-
-        // If filename alone was inconclusive, use content-detected document type!
-        if (metadata.detectedDocType && (!topDocType || highestScore < 75)) {
-          topDocType = metadata.detectedDocType;
-          highestScore = 98;
-          bestReason = metadata.matchReason || `Identified from PDF content (${metadata.detectedDocType})`;
-        }
-      } catch (pdfErr) {
-        console.warn('Deep PDF inspection skipped:', pdfErr);
-      }
-    }
-
-    if (topDocType && highestScore >= 40) {
-      candidates.push({
-        id,
-        file,
-        bestTarget: topDocType,
-        score: highestScore,
-        reason: bestReason,
-        isMedia: false,
-      });
-    } else {
-      candidates.push({
-        id,
-        file,
-        bestTarget: 'IGNORE',
-        score: 0,
-        reason: 'Filename and content do not match standard compliance keywords',
-        isMedia: false,
-      });
-    }
+export async function autoMatchFilesWithContent(
+  files: File[],
+  onProgress?: (current: number, total: number, msg: string) => void
+): Promise<AutoMatchResult> {
+  if (!files || files.length === 0) {
+    return {
+      matches: [],
+      matchedDocCount: 0,
+      photoCount: 0,
+      videoCount: 0,
+      unmatchedCount: 0,
+      totalFiles: 0,
+    };
   }
 
-  // Second pass: resolve slot claims
-  const slotClaimed: Partial<Record<DocType, { id: string; score: number }>> = {};
-  const finalMatches: AutoMatchFile[] = [];
-  const sortedCandidates = [...candidates].sort((a, b) => b.score - a.score);
+  const batchRes = await processBatchIntelligently(files, onProgress);
 
-  for (const cand of sortedCandidates) {
-    if (cand.bestTarget === 'PHOTOS' || cand.bestTarget === 'VIDEOS') {
-      finalMatches.push({
-        id: cand.id,
-        file: cand.file,
-        target: cand.bestTarget,
-        confidence: cand.score >= 80 ? 'high' : 'medium',
-        matchReason: cand.reason,
-        score: cand.score,
-      });
-      continue;
-    }
-
-    if (cand.bestTarget === 'IGNORE' || cand.score === 0) {
-      finalMatches.push({
-        id: cand.id,
-        file: cand.file,
-        target: 'IGNORE',
-        confidence: 'manual',
-        matchReason: cand.reason,
-        score: 0,
-      });
-      continue;
-    }
-
-    const docType = cand.bestTarget as DocType;
-    if (!slotClaimed[docType]) {
-      slotClaimed[docType] = { id: cand.id, score: cand.score };
-      finalMatches.push({
-        id: cand.id,
-        file: cand.file,
-        target: docType,
-        confidence: cand.score >= 80 ? 'high' : cand.score >= 50 ? 'medium' : 'manual',
-        matchReason: cand.reason,
-        score: cand.score,
-      });
-    } else {
-      finalMatches.push({
-        id: cand.id,
-        file: cand.file,
-        target: 'IGNORE',
-        confidence: 'manual',
-        matchReason: `Slot ${docType} already matched to another file; select a different slot or ignore`,
-        score: cand.score,
-      });
-    }
-  }
-
-  const originalOrderMatches = candidates.map(c => finalMatches.find(m => m.id === c.id)!);
-  const matchedDocCount = originalOrderMatches.filter(m => m.target !== 'IGNORE' && m.target !== 'PHOTOS' && m.target !== 'VIDEOS').length;
-  const photoCount = originalOrderMatches.filter(m => m.target === 'PHOTOS').length;
-  const videoCount = originalOrderMatches.filter(m => m.target === 'VIDEOS').length;
-  const unmatchedCount = originalOrderMatches.filter(m => m.target === 'IGNORE').length;
+  const matches: AutoMatchFile[] = batchRes.results.map((r, idx) => ({
+    id: `match_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+    file: r.file,
+    target: r.target as AutoMatchTarget,
+    confidence: r.confidence === 'low' ? 'manual' : (r.confidence as 'high' | 'medium' | 'manual'),
+    matchReason: r.reason,
+    score: r.confidenceScore,
+  }));
 
   return {
-    matches: originalOrderMatches,
-    matchedDocCount,
-    photoCount,
-    videoCount,
-    unmatchedCount,
+    matches,
+    matchedDocCount: batchRes.matchedDocCount,
+    photoCount: batchRes.photoCount,
+    videoCount: batchRes.videoCount,
+    unmatchedCount: batchRes.unmatchedCount,
     totalFiles: files.length,
-    extractedVin,
-    extractedRawId,
-    extractedMreNo,
-    extractedMake,
-    extractedModel,
+    extractedVin: batchRes.extractedVin,
+    extractedRawId: batchRes.extractedRawId,
+    extractedMreNo: batchRes.extractedMreNo,
+    extractedMake: batchRes.extractedMake,
+    extractedModel: batchRes.extractedModel,
   };
 }
 

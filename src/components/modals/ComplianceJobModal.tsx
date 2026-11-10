@@ -485,9 +485,11 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const handleFilesSelectedForAutoSort = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     const fileArray = Array.from(files);
-    showUploadToast('uploading', `Inspecting ${fileArray.length} files & detecting document content...`);
+    showUploadToast('uploading', `Inspecting ${fileArray.length} files with Document Intelligence...`);
     
-    const result = await autoMatchFilesWithContent(fileArray);
+    const result = await autoMatchFilesWithContent(fileArray, (current, total, msg) => {
+      showUploadToast('uploading', `[${current}/${total}] ${msg}`);
+    });
 
     // Auto-fill Section 1 if VIN, Workshop, or MRE # was found inside the document!
     if (result.extractedVin && !vin) {

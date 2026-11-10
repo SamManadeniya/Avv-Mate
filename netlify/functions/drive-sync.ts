@@ -1333,12 +1333,19 @@ export const handler = async (event: any) => {
           const viCell = formatDocCell('VI');
           const rawDeclaCell = formatDocCell('RAW_DECLA');
           const recallCell = formatDocCell('RECALL');
-          const photosUrl = (att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com') && !att['PHOTOS'].file_url.endsWith(rootParent))
-            ? att['PHOTOS'].file_url
-            : (folderUrl || (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' PHOTOS')}` : ''));
-          const photosCell = photosUrl
-            ? `=HYPERLINK("${photosUrl}", "${(att['PHOTOS']?.file_name || 'Photos').replace(/"/g, '""')}")`
-            : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
+          const hasActualPhotos = Boolean(
+            (att['PHOTOS']?.file_url && !att['PHOTOS'].file_url.includes('search?q=') && !att['PHOTOS'].file_name?.includes('PHOTOS Document')) ||
+            (j.batch_photos_count && j.batch_photos_count > 0)
+          );
+          let photosCell = '';
+          if (hasActualPhotos) {
+            const photosUrl = (att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com') && !att['PHOTOS'].file_url.endsWith(rootParent))
+              ? att['PHOTOS'].file_url
+              : (folderUrl || (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' PHOTOS')}` : ''));
+            photosCell = photosUrl
+              ? `=HYPERLINK("${photosUrl}", "${(att['PHOTOS']?.file_name || 'Photos').replace(/"/g, '""')}")`
+              : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
+          }
 
           // Count valid attached documents (8 docs + PHOTOS = 9 total)
           const docKeys = ['CRE', 'EC', 'CIN', 'WI', 'DC', 'VI', 'RAW_DECLA', 'RECALL', 'PHOTOS'];
@@ -1529,12 +1536,19 @@ export const handler = async (event: any) => {
             return `=HYPERLINK("${docUrl}", "${(item.file_name || docType).replace(/"/g, '""')}")`;
           };
 
-          const photosUrl = (att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com') && !att['PHOTOS'].file_url.endsWith(rootParent))
-            ? att['PHOTOS'].file_url
-            : (folderUrl || (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' PHOTOS')}` : ''));
-          const photosCell = photosUrl
-            ? `=HYPERLINK("${photosUrl}", "${(att['PHOTOS']?.file_name || 'Photos').replace(/"/g, '""')}")`
-            : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
+          const hasActualPhotos = Boolean(
+            (att['PHOTOS']?.file_url && !att['PHOTOS'].file_url.includes('search?q=') && !att['PHOTOS'].file_name?.includes('PHOTOS Document')) ||
+            (j.batch_photos_count && j.batch_photos_count > 0)
+          );
+          let photosCell = '';
+          if (hasActualPhotos) {
+            const photosUrl = (att['PHOTOS']?.file_url && att['PHOTOS'].file_url.startsWith('https://drive.google.com') && !att['PHOTOS'].file_url.endsWith(rootParent))
+              ? att['PHOTOS'].file_url
+              : (folderUrl || (cleanFolder ? `https://drive.google.com/drive/search?q=${encodeURIComponent(cleanFolder + ' PHOTOS')}` : ''));
+            photosCell = photosUrl
+              ? `=HYPERLINK("${photosUrl}", "${(att['PHOTOS']?.file_name || 'Photos').replace(/"/g, '""')}")`
+              : (j.batch_photos_count ? `${j.batch_photos_count} Photos` : '');
+          }
 
           const buildDateRange = (m.build_from || m.build_to)
             ? `${m.build_from || ''}${m.build_to ? ' to ' + m.build_to : ''}`
@@ -2042,7 +2056,10 @@ export const handler = async (event: any) => {
         docCols.forEach(({ type, colIdx }) => {
           if (!attachmentsMap[type] && r[colIdx]) {
             const rawVal = String(r[colIdx]).trim();
-            if (rawVal && rawVal !== 'Missing' && rawVal !== '—') {
+            if (rawVal && rawVal !== 'Missing' && rawVal !== '—' && rawVal.toLowerCase() !== 'photos') {
+              if (type === 'PHOTOS' && (rawVal.toLowerCase() === 'photos' || rawVal.includes('PHOTOS Document'))) {
+                return;
+              }
               const urlMatch = rawVal.match(/HYPERLINK\("([^"]+)"/i);
               const linkUrl = urlMatch ? urlMatch[1] : (rawVal.startsWith('http') ? rawVal : (folderUrl || `https://drive.google.com/drive/search?q=${folderNo}`));
               attachmentsMap[type] = {
