@@ -1164,7 +1164,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       if (extractedViaNo && !savedJob.via_no) {
         savedJob.via_no = extractedViaNo;
       }
-      if (extractedBuildDate && !savedJob.build_date) {
+      if (extractedBuildDate && (!savedJob.build_date || savedJob.build_date.includes('2026-11') || savedJob.build_date === '11/2026')) {
         savedJob.build_date = extractedBuildDate;
       }
       if (extractedUniqueId) {

@@ -95,9 +95,14 @@ export const exportCertificateRecognizer: DocumentRecognizer = {
         buildDate = `${String(month).padStart(2, '0')}/${fullYear}`;
       }
     } else {
-      const ymMatch = text.match(/(?:初度登録年月|初度登録)[^A-Za-z0-9\n]{0,25}(\d{4})[年\/\-](\d{1,2})/i);
+      const ymMatch = text.match(/(?:初度登録年月|初度登録)[^A-Za-z0-9]{0,35}(\d{4})\s*[年\/\-]\s*(\d{1,2})/i);
       if (ymMatch) {
         buildDate = `${ymMatch[2].padStart(2, '0')}/${ymMatch[1]}`;
+      } else {
+        const ymRevMatch = text.match(/(?:初度登録年月|初度登録)[^A-Za-z0-9]{0,35}(\d{1,2})\s*[年\/\-]\s*(\d{4})/i);
+        if (ymRevMatch) {
+          buildDate = `${ymRevMatch[1].padStart(2, '0')}/${ymRevMatch[2]}`;
+        }
       }
     }
 
@@ -325,9 +330,11 @@ export const consumerInformationNoticeRecognizer: DocumentRecognizer = {
 
     // Extract Build Date (Build month/year) from CIN
     let buildDate: string | undefined;
-    const buildMatch = text.match(/(?:Build\s+month(?:\s*\/\s*year)?|Build\s+date|Date\s+of\s+manufacture|Manufacture\s+date)[^A-Za-z0-9\n]{0,35}(\d{1,2}[\/\-]\d{4}|\d{4}[\/\-]\d{1,2})/i);
+    const buildMatch = text.match(
+      /(?:Build\s+month(?:\s*[\/\-]\s*year)?|Build\s+date|Date\s+of\s+manufacture|Manufacture\s+date)[^A-Za-z0-9]{0,40}(\d{1,2}\s*[\/\-]\s*\d{4}|\d{4}\s*[\/\-]\s*\d{1,2})/i
+    );
     if (buildMatch) {
-      const rawDate = buildMatch[1].replace(/-/g, '/');
+      const rawDate = buildMatch[1].replace(/\s+/g, '').replace(/-/g, '/');
       const parts = rawDate.split('/');
       if (parts[0].length === 4) {
         buildDate = `${parts[1].padStart(2, '0')}/${parts[0]}`;
