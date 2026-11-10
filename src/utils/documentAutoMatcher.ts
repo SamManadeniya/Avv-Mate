@@ -74,18 +74,28 @@ function scoreDocSlot(baseName: string, words: string[], type: DocType): { score
         text.includes('exp_cert') ||
         text.includes('exp_cer') ||
         text.includes('yushutsu') ||
-        text.includes('shoumeisho')
+        text.includes('shoumeisho') ||
+        text.includes('shaken') ||
+        text.includes('auction sheet') ||
+        text.includes('auction_sheet') ||
+        text.includes('auctionsheet') ||
+        text.includes('de-reg') ||
+        text.includes('deregistration') ||
+        text.includes('dereg')
       ) {
-        return { score: 100, reason: 'Matched "Export Certificate"' };
+        return { score: 100, reason: 'Matched "Export Certificate / Vehicle Title"' };
       }
       if (words.includes('export') && !words.includes('import')) {
         return { score: 90, reason: 'Matched "Export"' };
+      }
+      if (words.includes('shaken') || words.includes('dereg') || words.includes('yushutsu')) {
+        return { score: 90, reason: 'Matched Export / De-registration term' };
       }
       if (words.includes('ec') && !words.includes('check') && !words.includes('decl') && !words.includes('tech')) {
         return { score: 85, reason: 'Matched abbreviation "EC"' };
       }
       if (words.includes('cer') || words.includes('cert') || words.includes('certificate')) {
-        return { score: 70, reason: 'Matched "Certificate"' };
+        return { score: 75, reason: 'Matched "Certificate"' };
       }
       if (/^(0?2)[_\-\s\.]/.test(baseName)) return { score: 45, reason: 'Matched numeric prefix #2' };
       break;
