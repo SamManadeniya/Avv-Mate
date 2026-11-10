@@ -65,9 +65,10 @@ export async function extractTextFromPdf(
     }
 
     const cleanText = fullText.replace(/\s+/g, ' ').trim();
+    const hasAnyComplianceWord = /concessional|approval|rules|workshop|declaration|export|certificate|shaken|damage|corrosion|inspection|checklist|instruction|consumer|import|recall|vin|chassis|rav/i.test(cleanText);
 
-    // If substantial digital text is present, return immediately
-    if (cleanText.length >= 60) {
+    // If substantial digital text with compliance content is present, return immediately
+    if (cleanText.length >= 120 && hasAnyComplianceWord) {
       return {
         text: cleanText,
         isScanned: false,

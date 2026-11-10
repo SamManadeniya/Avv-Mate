@@ -40,20 +40,19 @@ export const exportCertificateRecognizer: DocumentRecognizer = {
 
     // Disqualify if this file is clearly another document type that merely references the export cert
     const isDisqualified =
-      fLower.includes('verification') ||
-      fLower.includes('checklist') ||
-      fLower.includes('instruction') ||
-      fLower.includes('damage') ||
-      fLower.includes('cin') ||
-      fLower.includes('recall') ||
+      /^vc|^vi|verification|checklist|^wi|instruction|^dr|^dc|damage|cin|recall/i.test(fileName) ||
       lower.includes('avv verification checklist') ||
       lower.includes('model report work instructions');
 
     if (!isDisqualified) {
-      // Strong explicit filename match
+      // Strong explicit filename match: export, shaken, dereg, or chassis number + cert (e.g. RP5-1098130 CERT.pdf)
       if (fLower.includes('export') || fLower.includes('shaken') || fLower.includes('dereg') || /\b_?ec_?\b/i.test(fileName)) {
         matched.push(`filename:${fileName}`);
         score += 80;
+      } else if (/\bcert\b|\bcertificate\b/i.test(fileName)) {
+        matched.push(`filename:${fileName}`);
+        score += 70;
+        if (/\b[a-z0-9]{2,6}[-_][0-9]{5,8}\b/i.test(fileName)) score += 30; // Chassis in filename!
       }
 
       // Official Japanese government export/shaken registration terms (Kanji)
@@ -171,7 +170,7 @@ export const rawDeclarationRecognizer: DocumentRecognizer = {
 
     // Disqualify if it's a Consumer Information Notice (CIN)
     const isDisqualified =
-      (/\bcin\b|\bcin\s*\(/i.test(fileName) && !fLower.includes('raw')) ||
+      (/^cin|\bcin\b|\bcin\s*\(/i.test(fileName) && !fLower.includes('raw')) ||
       (lower.includes('consumer information notice') && !lower.includes('checks conducted by the raw'));
 
     if (!isDisqualified) {
@@ -264,7 +263,7 @@ export const consumerInformationNoticeRecognizer: DocumentRecognizer = {
     const matched: string[] = [];
     let score = 0;
 
-    if (/\bcin\b|\bcin\s*\(|import[-_\s]?notice|consumer[-_\s]?notice/i.test(fileName) || fLower.includes('cin') || fLower.includes('consumer')) {
+    if (/^cin|\bcin\b|\bcin\s*\(|import[-_\s]?notice|consumer[-_\s]?notice/i.test(fileName) || fLower.includes('cin') || fLower.includes('consumer')) {
       matched.push(`filename:${fileName}`);
       score += 80;
     }
@@ -291,21 +290,24 @@ export const workInstructionsRecognizer: DocumentRecognizer = {
   name: 'Work Instructions',
   evaluate(text: string, fileName: string): RecognitionResult {
     const lower = text.toLowerCase();
-    const fLower = fileName.toLowerCase();
     const matched: string[] = [];
     let score = 0;
 
-    if (fLower.includes('instruction') || /\b_?wi_?\b/i.test(fileName)) {
-      matched.push(`filename:${fileName}`);
-      score += 80;
-    }
-    if (lower.includes('model report work instructions') || lower.includes('work instructions') || lower.includes('work instruction')) {
-      matched.push('Work Instructions');
-      score += 80;
-    }
-    if (/CPT[-_\s]*[A-Z0-9]{4,10}/i.test(text)) {
-      matched.push('CPT Document Identifier');
-      score += 40;
+    // Disqualify if it's a checklist / inspection
+    const isDisqualified = /^vc|^vi|verification|checklist/i.test(fileName);
+    if (!isDisqualified) {
+      if (/^wi|\bwi\b|_wi_|instruction|work[-_\s]?instruction/i.test(fileName)) {
+        matched.push(`filename:${fileName}`);
+        score += 80;
+      }
+      if (lower.includes('model report work instructions') || lower.includes('work instructions') || lower.includes('work instruction')) {
+        matched.push('Work Instructions');
+        score += 80;
+      }
+      if (/CPT[-_\s]*[A-Z0-9]{4,10}/i.test(text)) {
+        matched.push('CPT Document Identifier');
+        score += 40;
+      }
     }
 
     const vinRes = extractVinIntelligence(text);
@@ -326,11 +328,10 @@ export const vehicleInspectionRecognizer: DocumentRecognizer = {
   name: 'Vehicle Inspection Checklist',
   evaluate(text: string, fileName: string): RecognitionResult {
     const lower = text.toLowerCase();
-    const fLower = fileName.toLowerCase();
     const matched: string[] = [];
     let score = 0;
 
-    if (fLower.includes('verification') || fLower.includes('checklist') || fLower.includes('inspection') || /\b_?vi_?\b/i.test(fileName)) {
+    if (/^vc|^vi|\bvi\b|\bvc\b|verification|checklist|inspection/i.test(fileName)) {
       matched.push(`filename:${fileName}`);
       score += 80;
     }
@@ -361,21 +362,31 @@ export const damageCorrosionRecognizer: DocumentRecognizer = {
   name: 'Damage or Corrosion Assessment',
   evaluate(text: string, fileName: string): RecognitionResult {
     const lower = text.toLowerCase();
-    const fLower = fileName.toLowerCase();
     const matched: string[] = [];
     let score = 0;
 
-    if (fLower.includes('damage') || fLower.includes('corrosion') || /\b_?dc_?\b/i.test(fileName)) {
-      matched.push(`filename:${fileName}`);
-      score += 80;
-    }
-    if (lower.includes('damage or corrosion') || lower.includes('damage and corrosion') || lower.includes('damage & corrosion')) {
-      matched.push('Damage or Corrosion');
-      score += 80;
-    }
-    if (lower.includes('corrosion check') || lower.includes('damage assessment') || lower.includes('structural damage') || lower.includes('corrosion report')) {
-      matched.push('Damage Assessment / Corrosion Report');
-      score += 40;
+    // Disqualify if it's Work Instructions or Verification Checklist (which contain "18 Damage or corrosion check")
+    const isDisqualified =
+      /^wi|^vc|^vi|work[-_\s]?instruction|verification|checklist/i.test(fileName) ||
+      lower.includes('model report work instructions') ||
+      lower.includes('avv verification checklist');
+
+    if (!isDisqualified) {
+      if (/^dr|^dc|\bdc\b|\bdr\b|damage|corrosion/i.test(fileName)) {
+        matched.push(`filename:${fileName}`);
+        score += 80;
+      }
+      if (lower.includes('damage or corrosion assessment') || lower.includes('damage or corrosion report') || lower.includes('damage report') || lower.includes('corrosion report')) {
+        matched.push('Damage or Corrosion Report');
+        score += 80;
+      } else if (lower.includes('damage or corrosion') || lower.includes('damage and corrosion')) {
+        matched.push('Damage or Corrosion');
+        score += 50;
+      }
+      if (lower.includes('corrosion check') || lower.includes('damage assessment') || lower.includes('structural damage')) {
+        matched.push('Damage Assessment / Corrosion Report');
+        score += 40;
+      }
     }
 
     const vinRes = extractVinIntelligence(text);
