@@ -72,10 +72,11 @@ export async function processFileIntelligently(
 
   // Step 3: Handle Images (Distinguish Vehicle Photograph vs Document)
   if (signature.isImage) {
+    const hasExplicitDocName = /export|shaken|concessional|rav[-_]?entry|damage|corrosion|raw[-_]?decla|declaration|inspection|recall|import[-_]?notice|cin\b|cpt\b/i.test(file.name);
     const visual = await analyzeImageVisualType(file);
 
-    // If it's a vehicle photograph (natural landscape photo, scenic background)
-    if (visual.isLikelyVehicle) {
+    // If it's a vehicle photograph (natural landscape photo, scenic background) AND has no explicit compliance doc name
+    if (visual.isLikelyVehicle && !hasExplicitDocName) {
       return {
         file,
         target: 'PHOTOS',
