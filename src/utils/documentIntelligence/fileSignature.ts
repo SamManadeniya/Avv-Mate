@@ -76,3 +76,4 @@ export async function detectFileSignature(file: File): Promise<FileSignatureResu
     return { format: 'UNKNOWN', mimeType: file.type || 'application/octet-stream', isPdf: false, isImage: false, isVideo: false };
   }
 }
+
