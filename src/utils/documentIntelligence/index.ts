@@ -29,6 +29,9 @@ export interface IntelligentFileResult {
     make?: string;
     model?: string;
     chassisNo?: string;
+    viaNo?: string;
+    uniqueId?: string;
+    buildDate?: string;
   };
 }
 
@@ -39,6 +42,9 @@ export interface BatchProcessingResult {
   extractedMreNo?: string;
   extractedMake?: string;
   extractedModel?: string;
+  extractedViaNo?: string;
+  extractedUniqueId?: string;
+  extractedBuildDate?: string;
   matchedDocCount: number;
   photoCount: number;
   videoCount: number;
@@ -218,6 +224,9 @@ export async function processBatchIntelligently(
   let batchMreNo: string | undefined;
   let batchMake: string | undefined;
   let batchModel: string | undefined;
+  let batchViaNo: string | undefined;
+  let batchUniqueId: string | undefined;
+  let batchBuildDate: string | undefined;
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -227,12 +236,15 @@ export async function processBatchIntelligently(
       onProgress?.(i + 1, files.length, `${file.name}: ${msg}`);
     });
 
-    // Cross-pollinate Section 1 metadata across documents
+    // Cross-pollinate Section 1 & Vehicle metadata across documents
     if (result.metadata.vin && !batchVin) batchVin = result.metadata.vin;
     if (result.metadata.rawId && !batchRawId) batchRawId = result.metadata.rawId;
     if (result.metadata.mreNo && !batchMreNo) batchMreNo = result.metadata.mreNo;
     if (result.metadata.make && !batchMake) batchMake = result.metadata.make;
     if (result.metadata.model && !batchModel) batchModel = result.metadata.model;
+    if (result.metadata.viaNo && !batchViaNo) batchViaNo = result.metadata.viaNo;
+    if (result.metadata.uniqueId && !batchUniqueId) batchUniqueId = result.metadata.uniqueId;
+    if (result.metadata.buildDate && !batchBuildDate) batchBuildDate = result.metadata.buildDate;
 
     fileResults.push(result);
   }
@@ -331,6 +343,9 @@ export async function processBatchIntelligently(
     extractedMreNo: batchMreNo,
     extractedMake: batchMake,
     extractedModel: batchModel,
+    extractedViaNo: batchViaNo,
+    extractedUniqueId: batchUniqueId,
+    extractedBuildDate: batchBuildDate,
     matchedDocCount,
     photoCount,
     videoCount,

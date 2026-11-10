@@ -61,6 +61,9 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
   const [mreNo, setMreNo] = useState('');
   const [detectedMake, setDetectedMake] = useState('');
   const [detectedModel, setDetectedModel] = useState('');
+  const [extractedViaNo, setExtractedViaNo] = useState<string | null>(null);
+  const [extractedUniqueId, setExtractedUniqueId] = useState<string | null>(null);
+  const [extractedBuildDate, setExtractedBuildDate] = useState<string | null>(null);
   const [requestReceived, setRequestReceived] = useState('');
   const [videosUrl, setVideosUrl] = useState('');
   const [avvVerificationDate, setAvvVerificationDate] = useState('');
@@ -218,6 +221,9 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setQueuedBatchPhotos([]);
       setBatchPhotosCount(0);
       setAutoSortVinConflict(null);
+      setExtractedViaNo(null);
+      setExtractedUniqueId(null);
+      setExtractedBuildDate(null);
     }
     setIsDriveConfigured(googleDriveService.isConfigured());
     setDriveFeedback(null);
@@ -512,6 +518,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       const autoMre = resolveMreFromMakeModel(result.extractedMake || detectedMake, result.extractedModel || detectedModel);
       if (autoMre) setMreNo(autoMre.mre_no);
     }
+
+    if (result.extractedViaNo) setExtractedViaNo(result.extractedViaNo);
+    if (result.extractedUniqueId) setExtractedUniqueId(result.extractedUniqueId);
+    if (result.extractedBuildDate) setExtractedBuildDate(result.extractedBuildDate);
 
     setAutoSortMatches(result.matches);
     setAutoSortVinConflict(result.vinConflict || null);
@@ -1150,6 +1160,15 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       }
       if (!savedJob.model) {
         savedJob.model = currentMre?.model || detectedModel || null;
+      }
+      if (extractedViaNo && !savedJob.via_no) {
+        savedJob.via_no = extractedViaNo;
+      }
+      if (extractedBuildDate && !savedJob.build_date) {
+        savedJob.build_date = extractedBuildDate;
+      }
+      if (extractedUniqueId) {
+        (savedJob as any).unique_id = extractedUniqueId;
       }
 
       // Reconstruct attachments map for savedJob

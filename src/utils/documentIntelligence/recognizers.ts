@@ -19,6 +19,9 @@ export interface RecognitionResult {
     make?: string;
     model?: string;
     chassisNo?: string;
+    viaNo?: string;
+    uniqueId?: string;
+    buildDate?: string;
   };
 }
 
@@ -80,6 +83,24 @@ export const exportCertificateRecognizer: DocumentRecognizer = {
 
     const vinRes = extractVinIntelligence(text);
 
+    // Extract Build Date (First Registration Date / 初度登録年月) from Export Certificate
+    let buildDate: string | undefined;
+    const jpEraMatch = text.match(/(?:初度登録年月|初度登録)[^\d令和平成\n]{0,25}(令和|平成)\s*([0-9元]{1,2})\s*年\s*([0-9]{1,2})\s*月/i);
+    if (jpEraMatch) {
+      const era = jpEraMatch[1];
+      const eraYearRaw = jpEraMatch[2] === '元' ? 1 : parseInt(jpEraMatch[2], 10);
+      const month = parseInt(jpEraMatch[3], 10);
+      const fullYear = era === '令和' ? 2018 + eraYearRaw : 1988 + eraYearRaw;
+      if (!isNaN(fullYear) && !isNaN(month)) {
+        buildDate = `${String(month).padStart(2, '0')}/${fullYear}`;
+      }
+    } else {
+      const ymMatch = text.match(/(?:初度登録年月|初度登録)[^A-Za-z0-9\n]{0,25}(\d{4})[年\/\-](\d{1,2})/i);
+      if (ymMatch) {
+        buildDate = `${ymMatch[2].padStart(2, '0')}/${ymMatch[1]}`;
+      }
+    }
+
     return {
       docType: 'EC',
       confidence: score,
@@ -88,6 +109,7 @@ export const exportCertificateRecognizer: DocumentRecognizer = {
       metadata: {
         vin: vinRes.vin,
         chassisNo: vinRes.chassisNo,
+        buildDate,
       },
     };
   },
@@ -143,6 +165,13 @@ export const concessionalRavEntryRecognizer: DocumentRecognizer = {
       model = modelMatch[1].trim();
     }
 
+    // Extract VIA # (CRE Approval Number)
+    let viaNo: string | undefined;
+    const creMatch = text.match(/\b(CRE[-_\s]*\d{4,8})\b/i);
+    if (creMatch) {
+      viaNo = creMatch[1].toUpperCase().replace(/\s+/g, '-');
+    }
+
     return {
       docType: 'CRE',
       confidence: score,
@@ -153,6 +182,7 @@ export const concessionalRavEntryRecognizer: DocumentRecognizer = {
         make,
         model,
         chassisNo: vinRes.chassisNo,
+        viaNo,
       },
     };
   },
@@ -235,6 +265,25 @@ export const rawDeclarationRecognizer: DocumentRecognizer = {
       model = modelMatch[1].trim();
     }
 
+    // Extract VIA # (CRE Approval Number) from Item 4
+    let viaNo: string | undefined;
+    const viaMatch = text.match(/(?:Concessional\s+RAV\s+entry\s+approval\s+number|RAV\s+entry\s+approval\s+number|Concessional\s+approval\s+number)[^A-Za-z0-9\n]{0,35}(CRE[-_\s]*\d{4,8})/i);
+    if (viaMatch) {
+      viaNo = viaMatch[1].toUpperCase().replace(/\s+/g, '-');
+    } else {
+      const creFallback = text.match(/\b(CRE[-_\s]*\d{4,8})\b/i);
+      if (creFallback) {
+        viaNo = creFallback[1].toUpperCase().replace(/\s+/g, '-');
+      }
+    }
+
+    // Extract Unique ID (Model Report Work Instructions document identifier) from Item 12
+    let uniqueId: string | undefined;
+    const uidMatch = text.match(/(?:Model\s+Report\s+Work\s+Instructions?\s+document\s+identifier|Work\s+Instructions?\s+document\s+identifier|document\s+identifier)[^A-Za-z0-9\n]{0,35}([A-Za-z0-9\-_]{5,25})/i);
+    if (uidMatch && !/^(details|number|version|date|instruction|check)/i.test(uidMatch[1])) {
+      uniqueId = uidMatch[1].trim();
+    }
+
     const vinRes = extractVinIntelligence(text);
 
     return {
@@ -248,6 +297,8 @@ export const rawDeclarationRecognizer: DocumentRecognizer = {
         mreNo,
         make,
         model,
+        viaNo,
+        uniqueId,
       },
     };
   },
@@ -272,6 +323,26 @@ export const consumerInformationNoticeRecognizer: DocumentRecognizer = {
       score += 80;
     }
 
+    // Extract Build Date (Build month/year) from CIN
+    let buildDate: string | undefined;
+    const buildMatch = text.match(/(?:Build\s+month(?:\s*\/\s*year)?|Build\s+date|Date\s+of\s+manufacture|Manufacture\s+date)[^A-Za-z0-9\n]{0,35}(\d{1,2}[\/\-]\d{4}|\d{4}[\/\-]\d{1,2})/i);
+    if (buildMatch) {
+      const rawDate = buildMatch[1].replace(/-/g, '/');
+      const parts = rawDate.split('/');
+      if (parts[0].length === 4) {
+        buildDate = `${parts[1].padStart(2, '0')}/${parts[0]}`;
+      } else {
+        buildDate = `${parts[0].padStart(2, '0')}/${parts[1]}`;
+      }
+    }
+
+    // Extract VIA # from CIN table
+    let viaNo: string | undefined;
+    const cinCre = text.match(/\b(CRE[-_\s]*\d{4,8})\b/i);
+    if (cinCre) {
+      viaNo = cinCre[1].toUpperCase().replace(/\s+/g, '-');
+    }
+
     const vinRes = extractVinIntelligence(text);
 
     return {
@@ -279,7 +350,11 @@ export const consumerInformationNoticeRecognizer: DocumentRecognizer = {
       confidence: score,
       matchedKeywords: matched,
       reason: matched.length > 0 ? `Matched Import Notice (CIN): ${matched.join(', ')}` : '',
-      metadata: { vin: vinRes.vin },
+      metadata: {
+        vin: vinRes.vin,
+        buildDate,
+        viaNo,
+      },
     };
   },
 };
@@ -310,6 +385,18 @@ export const workInstructionsRecognizer: DocumentRecognizer = {
       }
     }
 
+    // Extract Unique ID from Work Instructions
+    let uniqueId: string | undefined;
+    const wiDocId = text.match(/(?:Document\s+identifier|Doc\s+identifier|Identifier)[:\s]+([A-Za-z0-9\-_]{5,25})/i);
+    if (wiDocId && !/^(details|number|version|date|instruction|check)/i.test(wiDocId[1])) {
+      uniqueId = wiDocId[1].trim();
+    } else {
+      const genericUid = text.match(/\b(AVV-\d{4}-\d{2,5}-\d{1,4}|CPT-[A-Z0-9]{4,10}|UID-[A-Za-z0-9\-_]{4,15})\b/i);
+      if (genericUid) {
+        uniqueId = genericUid[1].trim();
+      }
+    }
+
     const vinRes = extractVinIntelligence(text);
 
     return {
@@ -317,7 +404,10 @@ export const workInstructionsRecognizer: DocumentRecognizer = {
       confidence: score,
       matchedKeywords: matched,
       reason: matched.length > 0 ? `Matched Work Instructions: ${matched.join(', ')}` : '',
-      metadata: { vin: vinRes.vin },
+      metadata: {
+        vin: vinRes.vin,
+        uniqueId,
+      },
     };
   },
 };

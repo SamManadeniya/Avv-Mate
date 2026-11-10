@@ -24,6 +24,9 @@ export interface AutoMatchResult {
   extractedMreNo?: string;
   extractedMake?: string;
   extractedModel?: string;
+  extractedViaNo?: string;
+  extractedUniqueId?: string;
+  extractedBuildDate?: string;
   vinConflict?: {
     hasConflict: boolean;
     detectedVins: Array<{ vin: string; fileName: string; docType?: string; chassisNo?: string }>;
@@ -482,6 +485,9 @@ export async function autoMatchFilesWithContent(
     extractedMreNo: batchRes.extractedMreNo,
     extractedMake: batchRes.extractedMake,
     extractedModel: batchRes.extractedModel,
+    extractedViaNo: batchRes.extractedViaNo,
+    extractedUniqueId: batchRes.extractedUniqueId,
+    extractedBuildDate: batchRes.extractedBuildDate,
     vinConflict: batchRes.vinConflict,
   };
 }

@@ -536,29 +536,38 @@ export const App: React.FC = () => {
     }
     setComplianceJobs(updatedJobs);
 
-    // Auto-link vehicle if new
+    // Auto-link vehicle if new or update existing missing fields
     let updatedVehicles = vehicles;
     if (savedJob.vin) {
       const vIdx = vehicles.findIndex(v => v.vin.toUpperCase() === savedJob.vin.toUpperCase());
+      const jobUniqueId = (savedJob as any).unique_id || null;
+      const jobViaNo = savedJob.via_no || null;
+      const jobBuildDate = savedJob.build_date || null;
+
       if (vIdx >= 0) {
         const currentV = vehicles[vIdx];
-        if (!currentV.raw_id && savedJob.raw_id) {
-          updatedVehicles = [...vehicles];
-          updatedVehicles[vIdx] = {
-            ...currentV,
-            raw_id: savedJob.raw_id,
-            raw_workshop_name: savedJob.raw_workshop_name || currentV.raw_workshop_name,
-            mre_no: savedJob.mre_no || currentV.mre_no,
-            make: savedJob.make || currentV.make,
-            model: savedJob.model || currentV.model,
-          };
-          setVehicles(updatedVehicles);
-        }
+        const isDefaultBuildDate = !currentV.build_date || currentV.build_date.includes('2026-11') || currentV.build_date === '11/2026';
+
+        updatedVehicles = [...vehicles];
+        updatedVehicles[vIdx] = {
+          ...currentV,
+          unique_id: currentV.unique_id || jobUniqueId || currentV.unique_id,
+          via_no: currentV.via_no || jobViaNo || currentV.via_no,
+          build_date: (isDefaultBuildDate && jobBuildDate) ? jobBuildDate : (currentV.build_date || jobBuildDate || ''),
+          raw_id: savedJob.raw_id || currentV.raw_id,
+          raw_workshop_name: savedJob.raw_workshop_name || currentV.raw_workshop_name,
+          mre_no: savedJob.mre_no || currentV.mre_no,
+          make: savedJob.make || currentV.make,
+          model: savedJob.model || currentV.model,
+          updated_at: new Date().toISOString(),
+        };
+        setVehicles(updatedVehicles);
       } else {
         const newV: Vehicle = {
           vin: savedJob.vin.toUpperCase(),
-          build_date: savedJob.build_date || new Date().toISOString().slice(0, 7),
-          via_no: savedJob.via_no || null,
+          unique_id: jobUniqueId || null,
+          build_date: jobBuildDate || new Date().toISOString().slice(0, 7),
+          via_no: jobViaNo || null,
           raw_id: savedJob.raw_id || null,
           raw_workshop_name: savedJob.raw_workshop_name || null,
           mre_no: savedJob.mre_no || null,
