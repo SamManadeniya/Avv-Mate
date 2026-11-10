@@ -24,6 +24,11 @@ export interface AutoMatchResult {
   extractedMreNo?: string;
   extractedMake?: string;
   extractedModel?: string;
+  vinConflict?: {
+    hasConflict: boolean;
+    detectedVins: Array<{ vin: string; fileName: string; docType?: string; chassisNo?: string }>;
+    warningMessage?: string;
+  };
 }
 
 // 8 Core Compliance Documents (excluding PHOTOS which is batch media)
@@ -477,6 +482,7 @@ export async function autoMatchFilesWithContent(
     extractedMreNo: batchRes.extractedMreNo,
     extractedMake: batchRes.extractedMake,
     extractedModel: batchRes.extractedModel,
+    vinConflict: batchRes.vinConflict,
   };
 }
 

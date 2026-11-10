@@ -43,6 +43,11 @@ export interface BatchProcessingResult {
   photoCount: number;
   videoCount: number;
   unmatchedCount: number;
+  vinConflict?: {
+    hasConflict: boolean;
+    detectedVins: Array<{ vin: string; fileName: string; docType?: string; chassisNo?: string }>;
+    warningMessage?: string;
+  };
 }
 
 /**
@@ -261,6 +266,59 @@ export async function processBatchIntelligently(
     }
   }
 
+  // Cross-document VIN intelligence & Conflict Detection
+  const detectedVins: Array<{ vin: string; fileName: string; docType?: string; chassisNo?: string }> = [];
+  const vinScore: Record<string, number> = {};
+
+  for (const res of fileResults) {
+    if (res.metadata.vin) {
+      const v = res.metadata.vin.toUpperCase();
+      detectedVins.push({
+        vin: v,
+        fileName: res.file.name,
+        docType: res.target !== 'IGNORE' ? res.target : undefined,
+        chassisNo: res.metadata.chassisNo,
+      });
+      vinScore[v] = (vinScore[v] || 0) + 1;
+    }
+  }
+
+  // Cross-reference detected chassis numbers from Export Certs, Checklists, etc.
+  const allChassis = fileResults
+    .map(r => r.metadata.chassisNo?.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+    .filter((c): c is string => typeof c === 'string' && c.length >= 5);
+
+  const uniqueVins = Object.keys(vinScore);
+  for (const v of uniqueVins) {
+    const vClean = v.replace(/[^A-Z0-9]/g, '');
+    for (const ch of allChassis) {
+      if (vClean.includes(ch)) {
+        vinScore[v] = (vinScore[v] || 0) + 1;
+      }
+    }
+  }
+
+  let vinConflict: BatchProcessingResult['vinConflict'] = undefined;
+
+  if (uniqueVins.length > 1) {
+    // Sort VINs by total consensus score descending (majority + chassis reinforcement)
+    const sortedVins = [...uniqueVins].sort((a, b) => vinScore[b] - vinScore[a]);
+    batchVin = sortedVins[0];
+
+    const conflictSummary = uniqueVins.map(v => {
+      const filesWithV = detectedVins.filter(d => d.vin === v).map(d => `${d.fileName}${d.docType ? ` (${d.docType})` : ''}`).join(', ');
+      return `VIN ${v} in [${filesWithV}]`;
+    }).join(' vs ');
+
+    vinConflict = {
+      hasConflict: true,
+      detectedVins,
+      warningMessage: `⚠️ Mixed Vehicle Warning: Uploaded batch contains multiple different VINs: ${conflictSummary}. Please check that you selected files for the same car.`,
+    };
+  } else if (uniqueVins.length === 1) {
+    batchVin = uniqueVins[0];
+  }
+
   const matchedDocCount = finalResults.filter(r => r.target !== 'IGNORE' && r.target !== 'PHOTOS' && r.target !== 'VIDEOS').length;
   const photoCount = finalResults.filter(r => r.target === 'PHOTOS').length;
   const videoCount = finalResults.filter(r => r.target === 'VIDEOS').length;
@@ -277,6 +335,7 @@ export async function processBatchIntelligently(
     photoCount,
     videoCount,
     unmatchedCount,
+    vinConflict,
   };
 }
 

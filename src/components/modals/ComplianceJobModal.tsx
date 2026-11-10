@@ -28,7 +28,7 @@ import { attachmentService } from '../../services/attachmentService';
 import { complianceJobService } from '../../services/complianceJobService';
 import { googleDriveService, type VehicleDriveHierarchy } from '../../services/googleDriveService';
 import { formatBytes, getNextFolderNumber } from '../../lib/utils';
-import { autoMatchFilesWithContent, type AutoMatchFile, type AutoMatchTarget } from '../../utils/documentAutoMatcher';
+import { autoMatchFilesWithContent, type AutoMatchFile, type AutoMatchTarget, type AutoMatchResult } from '../../utils/documentAutoMatcher';
 import { extractPdfTextAndMetadata, generateStandardFileName, createRenamedFile } from '../../utils/pdfTextExtractor';
 import { AutoSortReviewModal } from './AutoSortReviewModal';
 
@@ -126,6 +126,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
 
   // Auto-Sort & Batch Matching states
   const [autoSortMatches, setAutoSortMatches] = useState<AutoMatchFile[]>([]);
+  const [autoSortVinConflict, setAutoSortVinConflict] = useState<AutoMatchResult['vinConflict'] | null>(null);
   const [isAutoSortModalOpen, setIsAutoSortModalOpen] = useState(false);
   const [isAutoSortProcessing, setIsAutoSortProcessing] = useState(false);
   const [isDragOverDropzone, setIsDragOverDropzone] = useState(false);
@@ -216,6 +217,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       });
       setQueuedBatchPhotos([]);
       setBatchPhotosCount(0);
+      setAutoSortVinConflict(null);
     }
     setIsDriveConfigured(googleDriveService.isConfigured());
     setDriveFeedback(null);
@@ -512,6 +514,10 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     }
 
     setAutoSortMatches(result.matches);
+    setAutoSortVinConflict(result.vinConflict || null);
+    if (result.vinConflict?.hasConflict) {
+      showUploadToast('error', `⚠️ Mixed Vehicle Warning: Uploaded files contain multiple VINs (${result.vinConflict.detectedVins.map(d => d.vin).join(' vs ')}).`);
+    }
     setIsAutoSortModalOpen(true);
   };
 
@@ -2152,6 +2158,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
         onUpdateMatch={handleUpdateAutoMatchTarget}
         onConfirm={handleConfirmAutoSort}
         isProcessing={isAutoSortProcessing}
+        vinConflict={autoSortVinConflict}
       />
     </div>
   );

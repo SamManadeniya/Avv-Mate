@@ -4,6 +4,7 @@ import {
   Sparkles, 
   CheckCircle2, 
   AlertCircle, 
+  AlertTriangle,
   FileText, 
   Images, 
   Film, 
@@ -22,6 +23,11 @@ interface AutoSortReviewModalProps {
   onUpdateMatch: (id: string, newTarget: AutoMatchTarget) => void;
   onConfirm: () => void;
   isProcessing?: boolean;
+  vinConflict?: {
+    hasConflict: boolean;
+    detectedVins: Array<{ vin: string; fileName: string; docType?: string; chassisNo?: string }>;
+    warningMessage?: string;
+  } | null;
 }
 
 export const AutoSortReviewModal: React.FC<AutoSortReviewModalProps> = ({
@@ -31,6 +37,7 @@ export const AutoSortReviewModal: React.FC<AutoSortReviewModalProps> = ({
   onUpdateMatch,
   onConfirm,
   isProcessing = false,
+  vinConflict,
 }) => {
   if (!isOpen) return null;
 
@@ -115,6 +122,30 @@ export const AutoSortReviewModal: React.FC<AutoSortReviewModalProps> = ({
             Total: {matches.length} file{matches.length !== 1 ? 's' : ''}
           </span>
         </div>
+
+        {/* VIN Conflict Warning Banner */}
+        {vinConflict?.hasConflict && (
+          <div className="mx-4 sm:mx-5 mt-3 p-3 bg-amber-50 border border-amber-300 rounded-lg flex items-start gap-2.5 text-amber-900 text-xs">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-amber-950">
+                ⚠️ Mixed Vehicle Documents Detected!
+              </p>
+              <p className="text-amber-800">
+                The files in this upload contain different VIN numbers. Please check that you haven't accidentally mixed documents from different cars:
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 font-mono text-[11px] text-amber-900 bg-amber-100/60 p-2 rounded border border-amber-200">
+                {vinConflict.detectedVins.map((d, i) => (
+                  <li key={i}>
+                    <span className="font-bold">{d.fileName}</span>
+                    {d.docType ? ` [${d.docType}]` : ''}: VIN <span className="font-bold underline">{d.vin}</span>
+                    {d.chassisNo ? ` (Chassis: ${d.chassisNo})` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
 
         {/* Matched Files List */}
         <div className="p-4 sm:p-5 overflow-y-auto space-y-2.5 flex-1 divide-y divide-slate-100">
