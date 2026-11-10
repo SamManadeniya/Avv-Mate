@@ -38,45 +38,57 @@ export const exportCertificateRecognizer: DocumentRecognizer = {
     const matched: string[] = [];
     let score = 0;
 
-    // Japanese official keywords (Kanji & Romaji)
-    const jpTerms = [
-      '輸出抹消仮登録証明書', '登録識別情報等通知書', '自動車検査証', '抹消登録',
-      'yushutsu', 'shoumeisho', 'shaken', 'masshou', 'toroku',
-      'japan automobile', 'ministry of land', 'chassis number',
-      'certificate of export', 'export certificate', 'deregistration',
-      'export cert', 'exp cert', 'auction sheet', '車台番号', '原動機型式',
-      '初度登録年月', '乗車定員', '車両総重量'
-    ];
+    // Disqualify if this file is clearly another document type that merely references the export cert
+    const isDisqualified =
+      fLower.includes('verification') ||
+      fLower.includes('checklist') ||
+      fLower.includes('instruction') ||
+      fLower.includes('damage') ||
+      fLower.includes('cin') ||
+      fLower.includes('recall') ||
+      lower.includes('avv verification checklist') ||
+      lower.includes('model report work instructions');
 
-    jpTerms.forEach(term => {
-      if (lower.includes(term)) {
-        matched.push(term);
-        score += 25;
+    if (!isDisqualified) {
+      // Strong explicit filename match
+      if (fLower.includes('export') || fLower.includes('shaken') || fLower.includes('dereg') || /\b_?ec_?\b/i.test(fileName)) {
+        matched.push(`filename:${fileName}`);
+        score += 80;
       }
-    });
 
-    if (fLower.includes('export') || fLower.includes('ec') || fLower.includes('shaken') || fLower.includes('dereg')) {
-      matched.push(`filename:${fileName}`);
-      score += 30;
-    }
+      // Official Japanese government export/shaken registration terms (Kanji)
+      const officialJpTerms = [
+        '輸出抹消仮登録証明書', '登録識別情報等通知書', '自動車検査証', '抹消登録',
+        'yushutsu', 'shoumeisho', 'shaken', 'masshou', 'toroku',
+        'japan automobile', 'ministry of land', 'certificate of export', 'export certificate',
+        'deregistration', '車台番号', '原動機型式', '初度登録年月', '乗車定員', '車両総重量'
+      ];
 
-    // Look for chassis number typical of Japanese vehicles (e.g. ZRR85-0029733)
-    const chassisMatch = text.match(/\b([A-Z0-9]{2,6}[-_][0-9]{5,8})\b/i);
-    if (chassisMatch) {
-      matched.push(`chassis:${chassisMatch[1]}`);
-      score += 25;
+      officialJpTerms.forEach(term => {
+        if (lower.includes(term.toLowerCase())) {
+          matched.push(term);
+          score += 40;
+        }
+      });
+
+      // Look for chassis number typical of Japanese vehicles (e.g. ZRR85-0029733)
+      const chassisMatch = text.match(/\b([A-Z0-9]{2,6}[-_][0-9]{5,8})\b/i);
+      if (chassisMatch) {
+        matched.push(`chassis:${chassisMatch[1]}`);
+        score += 20;
+      }
     }
 
     const vinRes = extractVinIntelligence(text);
 
     return {
       docType: 'EC',
-      confidence: Math.min(100, score),
+      confidence: score,
       matchedKeywords: matched,
-      reason: matched.length > 0 ? `Matched Export Certificate terms: ${matched.slice(0, 3).join(', ')}` : '',
+      reason: matched.length > 0 ? `Matched Export Certificate: ${matched.slice(0, 3).join(', ')}` : '',
       metadata: {
         vin: vinRes.vin,
-        chassisNo: chassisMatch ? chassisMatch[1].toUpperCase() : vinRes.chassisNo,
+        chassisNo: vinRes.chassisNo,
       },
     };
   },
@@ -92,21 +104,30 @@ export const concessionalRavEntryRecognizer: DocumentRecognizer = {
     const matched: string[] = [];
     let score = 0;
 
-    if (lower.includes('concessional rav entry approval') || lower.includes('concessional rav entry')) {
-      matched.push('Concessional RAV Entry Approval');
-      score += 60;
-    }
-    if (lower.includes('road vehicle standards rules 2019') || lower.includes('section 35')) {
-      matched.push('RVSA Section 35');
-      score += 25;
-    }
-    if (lower.includes('approval number') && /CRE[-_\s]*\d{4,8}/i.test(text)) {
-      matched.push('CRE-Approval Number');
-      score += 30;
-    }
-    if (fLower.includes('cre') || fLower.includes('concessional')) {
-      matched.push(`filename:${fileName}`);
-      score += 20;
+    // Disqualify if it's a RAW Declaration that merely lists the CRE number in Section 4
+    const isDisqualified =
+      fLower.includes('raw') ||
+      fLower.includes('declaration') ||
+      lower.includes('registered automotive workshop (raw) declaration') ||
+      lower.includes('checks conducted by the raw');
+
+    if (!isDisqualified) {
+      if (fLower.includes('cre') || fLower.includes('concessional') || fLower.includes('approval notice') || fLower.includes('rav entry')) {
+        matched.push(`filename:${fileName}`);
+        score += 80;
+      }
+      if (lower.includes('concessional rav entry approval') || lower.includes('concessional rav entry')) {
+        matched.push('Concessional RAV Entry Approval');
+        score += 80;
+      }
+      if (lower.includes('road vehicle standards rules 2019') && lower.includes('section 35')) {
+        matched.push('RVSA Section 35');
+        score += 40;
+      }
+      if (/CRE[-_\s]*\d{4,8}/i.test(text)) {
+        matched.push('CRE-Approval Number');
+        score += 30;
+      }
     }
 
     // Extract VIN & Vehicle Details from CRE table
@@ -125,9 +146,9 @@ export const concessionalRavEntryRecognizer: DocumentRecognizer = {
 
     return {
       docType: 'CRE',
-      confidence: Math.min(100, score),
+      confidence: score,
       matchedKeywords: matched,
-      reason: matched.length > 0 ? `Matched CRE approval headers: ${matched.join(', ')}` : '',
+      reason: matched.length > 0 ? `Matched CRE approval: ${matched.join(', ')}` : '',
       metadata: {
         vin: vinRes.vin,
         make,
@@ -138,48 +159,7 @@ export const concessionalRavEntryRecognizer: DocumentRecognizer = {
   },
 };
 
-// 3. Damage or Corrosion (DC)
-export const damageCorrosionRecognizer: DocumentRecognizer = {
-  type: 'DC',
-  name: 'Damage or Corrosion Assessment',
-  evaluate(text: string, fileName: string): RecognitionResult {
-    const lower = text.toLowerCase();
-    const fLower = fileName.toLowerCase();
-    const matched: string[] = [];
-    let score = 0;
-
-    if (lower.includes('damage or corrosion') || lower.includes('damage and corrosion') || lower.includes('damage & corrosion')) {
-      matched.push('Damage or Corrosion');
-      score += 65;
-    }
-    if (lower.includes('corrosion check') || lower.includes('damage assessment') || lower.includes('structural damage')) {
-      matched.push('Damage Assessment / Corrosion Check');
-      score += 35;
-    }
-    if (lower.includes('rust inspection') || lower.includes('corrosion report')) {
-      matched.push('Corrosion Report');
-      score += 30;
-    }
-    if (fLower.includes('dc') || fLower.includes('damage') || fLower.includes('corrosion')) {
-      matched.push(`filename:${fileName}`);
-      score += 25;
-    }
-
-    const vinRes = extractVinIntelligence(text);
-
-    return {
-      docType: 'DC',
-      confidence: Math.min(100, score),
-      matchedKeywords: matched,
-      reason: matched.length > 0 ? `Matched Damage / Corrosion inspection terms: ${matched.join(', ')}` : '',
-      metadata: {
-        vin: vinRes.vin,
-      },
-    };
-  },
-};
-
-// 4. RAW Declaration (RAW_DECLA)
+// 3. RAW Declaration (RAW_DECLA)
 export const rawDeclarationRecognizer: DocumentRecognizer = {
   type: 'RAW_DECLA',
   name: 'RAW Declaration',
@@ -189,21 +169,28 @@ export const rawDeclarationRecognizer: DocumentRecognizer = {
     const matched: string[] = [];
     let score = 0;
 
-    if (lower.includes('registered automotive workshop') && lower.includes('declaration')) {
-      matched.push('Registered Automotive Workshop Declaration');
-      score += 65;
-    }
-    if (lower.includes('paragraph 65(2)(a)') || lower.includes('road vehicle standards rules 2019')) {
-      matched.push('Paragraph 65(2)(a)');
-      score += 25;
-    }
-    if (/RAW[:\-_\s]*\d{3,6}/i.test(text)) {
-      matched.push('RAW Approval Number');
-      score += 25;
-    }
-    if (fLower.includes('raw') && (fLower.includes('decl') || fLower.includes('declaration'))) {
-      matched.push(`filename:${fileName}`);
-      score += 25;
+    // Disqualify if it's a Consumer Information Notice (CIN)
+    const isDisqualified =
+      (/\bcin\b|\bcin\s*\(/i.test(fileName) && !fLower.includes('raw')) ||
+      (lower.includes('consumer information notice') && !lower.includes('checks conducted by the raw'));
+
+    if (!isDisqualified) {
+      if (fLower.includes('raw') && (fLower.includes('decl') || fLower.includes('declaration'))) {
+        matched.push(`filename:${fileName}`);
+        score += 80;
+      }
+      if (lower.includes('registered automotive workshop') && lower.includes('declaration')) {
+        matched.push('Registered Automotive Workshop Declaration');
+        score += 80;
+      }
+      if (lower.includes('paragraph 65(2)(a)') || lower.includes('checks conducted by the raw') || lower.includes('raw approval holder details')) {
+        matched.push('Paragraph 65(2)(a)');
+        score += 40;
+      }
+      if (/RAW[:\-_\s]*\d{3,6}/i.test(text)) {
+        matched.push('RAW Approval Number');
+        score += 30;
+      }
     }
 
     // Extract RAW ID
@@ -253,9 +240,9 @@ export const rawDeclarationRecognizer: DocumentRecognizer = {
 
     return {
       docType: 'RAW_DECLA',
-      confidence: Math.min(100, score),
+      confidence: score,
       matchedKeywords: matched,
-      reason: matched.length > 0 ? `Matched RAW Declaration form: ${matched.join(', ')}` : '',
+      reason: matched.length > 0 ? `Matched RAW Declaration: ${matched.join(', ')}` : '',
       metadata: {
         vin: vinRes.vin,
         rawId,
@@ -263,6 +250,37 @@ export const rawDeclarationRecognizer: DocumentRecognizer = {
         make,
         model,
       },
+    };
+  },
+};
+
+// 4. Consumer Information Notice (CIN)
+export const consumerInformationNoticeRecognizer: DocumentRecognizer = {
+  type: 'CIN',
+  name: 'Consumer Information Notice',
+  evaluate(text: string, fileName: string): RecognitionResult {
+    const lower = text.toLowerCase();
+    const fLower = fileName.toLowerCase();
+    const matched: string[] = [];
+    let score = 0;
+
+    if (/\bcin\b|\bcin\s*\(|import[-_\s]?notice|consumer[-_\s]?notice/i.test(fileName) || fLower.includes('cin') || fLower.includes('consumer')) {
+      matched.push(`filename:${fileName}`);
+      score += 80;
+    }
+    if (lower.includes('consumer information notice') || lower.includes('consumer notice') || lower.includes('import notice')) {
+      matched.push('Consumer Information Notice');
+      score += 80;
+    }
+
+    const vinRes = extractVinIntelligence(text);
+
+    return {
+      docType: 'CIN',
+      confidence: score,
+      matchedKeywords: matched,
+      reason: matched.length > 0 ? `Matched Import Notice (CIN): ${matched.join(', ')}` : '',
+      metadata: { vin: vinRes.vin },
     };
   },
 };
@@ -277,24 +295,24 @@ export const workInstructionsRecognizer: DocumentRecognizer = {
     const matched: string[] = [];
     let score = 0;
 
-    if (lower.includes('model report work instructions') || lower.includes('work instructions')) {
+    if (fLower.includes('instruction') || /\b_?wi_?\b/i.test(fileName)) {
+      matched.push(`filename:${fileName}`);
+      score += 80;
+    }
+    if (lower.includes('model report work instructions') || lower.includes('work instructions') || lower.includes('work instruction')) {
       matched.push('Work Instructions');
-      score += 65;
+      score += 80;
     }
     if (/CPT[-_\s]*[A-Z0-9]{4,10}/i.test(text)) {
       matched.push('CPT Document Identifier');
-      score += 30;
-    }
-    if (fLower.includes('wi') || fLower.includes('instruction')) {
-      matched.push(`filename:${fileName}`);
-      score += 20;
+      score += 40;
     }
 
     const vinRes = extractVinIntelligence(text);
 
     return {
       docType: 'WI',
-      confidence: Math.min(100, score),
+      confidence: score,
       matchedKeywords: matched,
       reason: matched.length > 0 ? `Matched Work Instructions: ${matched.join(', ')}` : '',
       metadata: { vin: vinRes.vin },
@@ -302,7 +320,7 @@ export const workInstructionsRecognizer: DocumentRecognizer = {
   },
 };
 
-// 6. Vehicle Inspection (VI)
+// 6. Vehicle Inspection (VI) / Verification Checklist
 export const vehicleInspectionRecognizer: DocumentRecognizer = {
   type: 'VI',
   name: 'Vehicle Inspection Checklist',
@@ -312,24 +330,24 @@ export const vehicleInspectionRecognizer: DocumentRecognizer = {
     const matched: string[] = [];
     let score = 0;
 
-    if (lower.includes('vehicle inspection') || lower.includes('inspection checklist') || lower.includes('physical inspection')) {
-      matched.push('Vehicle Inspection Checklist');
-      score += 65;
-    }
-    if (lower.includes('hoist inspection') || lower.includes('brake test') || lower.includes('underbody check')) {
-      matched.push('Inspection Test Items');
-      score += 25;
-    }
-    if (fLower.includes('vi') || fLower.includes('inspection')) {
+    if (fLower.includes('verification') || fLower.includes('checklist') || fLower.includes('inspection') || /\b_?vi_?\b/i.test(fileName)) {
       matched.push(`filename:${fileName}`);
-      score += 20;
+      score += 80;
+    }
+    if (lower.includes('verification checklist') || lower.includes('vehicle inspection') || lower.includes('inspection checklist') || lower.includes('physical inspection')) {
+      matched.push('Verification Checklist');
+      score += 80;
+    }
+    if (lower.includes('hoist inspection') || lower.includes('brake test') || lower.includes('underbody check') || lower.includes('scope check')) {
+      matched.push('Inspection Checklist Items');
+      score += 30;
     }
 
     const vinRes = extractVinIntelligence(text);
 
     return {
       docType: 'VI',
-      confidence: Math.min(100, score),
+      confidence: score,
       matchedKeywords: matched,
       reason: matched.length > 0 ? `Matched Vehicle Inspection: ${matched.join(', ')}` : '',
       metadata: { vin: vinRes.vin },
@@ -337,7 +355,44 @@ export const vehicleInspectionRecognizer: DocumentRecognizer = {
   },
 };
 
-// 7. Recall Clearance (RECALL)
+// 7. Damage or Corrosion (DC)
+export const damageCorrosionRecognizer: DocumentRecognizer = {
+  type: 'DC',
+  name: 'Damage or Corrosion Assessment',
+  evaluate(text: string, fileName: string): RecognitionResult {
+    const lower = text.toLowerCase();
+    const fLower = fileName.toLowerCase();
+    const matched: string[] = [];
+    let score = 0;
+
+    if (fLower.includes('damage') || fLower.includes('corrosion') || /\b_?dc_?\b/i.test(fileName)) {
+      matched.push(`filename:${fileName}`);
+      score += 80;
+    }
+    if (lower.includes('damage or corrosion') || lower.includes('damage and corrosion') || lower.includes('damage & corrosion')) {
+      matched.push('Damage or Corrosion');
+      score += 80;
+    }
+    if (lower.includes('corrosion check') || lower.includes('damage assessment') || lower.includes('structural damage') || lower.includes('corrosion report')) {
+      matched.push('Damage Assessment / Corrosion Report');
+      score += 40;
+    }
+
+    const vinRes = extractVinIntelligence(text);
+
+    return {
+      docType: 'DC',
+      confidence: score,
+      matchedKeywords: matched,
+      reason: matched.length > 0 ? `Matched Damage / Corrosion: ${matched.join(', ')}` : '',
+      metadata: {
+        vin: vinRes.vin,
+      },
+    };
+  },
+};
+
+// 8. Recall Clearance (RECALL)
 export const recallClearanceRecognizer: DocumentRecognizer = {
   type: 'RECALL',
   name: 'Recall Clearance',
@@ -347,57 +402,26 @@ export const recallClearanceRecognizer: DocumentRecognizer = {
     const matched: string[] = [];
     let score = 0;
 
+    if (fLower.includes('recall')) {
+      matched.push(`filename:${fileName}`);
+      score += 80;
+    }
     if (lower.includes('recall clearance') || lower.includes('recall check') || lower.includes('recall status')) {
       matched.push('Recall Clearance');
-      score += 65;
+      score += 80;
     }
     if (lower.includes('outstanding safety recall') || lower.includes('campaign check') || lower.includes('no safety recalls')) {
       matched.push('Safety Recall Check');
-      score += 35;
-    }
-    if (fLower.includes('recall')) {
-      matched.push(`filename:${fileName}`);
-      score += 25;
+      score += 40;
     }
 
     const vinRes = extractVinIntelligence(text);
 
     return {
       docType: 'RECALL',
-      confidence: Math.min(100, score),
+      confidence: score,
       matchedKeywords: matched,
       reason: matched.length > 0 ? `Matched Recall Clearance: ${matched.join(', ')}` : '',
-      metadata: { vin: vinRes.vin },
-    };
-  },
-};
-
-// 8. Consumer Information Notice (CIN)
-export const consumerInformationNoticeRecognizer: DocumentRecognizer = {
-  type: 'CIN',
-  name: 'Consumer Information Notice',
-  evaluate(text: string, fileName: string): RecognitionResult {
-    const lower = text.toLowerCase();
-    const fLower = fileName.toLowerCase();
-    const matched: string[] = [];
-    let score = 0;
-
-    if (lower.includes('consumer information notice') || lower.includes('consumer notice') || lower.includes('import notice')) {
-      matched.push('Consumer Information Notice');
-      score += 65;
-    }
-    if (fLower.includes('cin') || fLower.includes('import_notice') || fLower.includes('consumer')) {
-      matched.push(`filename:${fileName}`);
-      score += 25;
-    }
-
-    const vinRes = extractVinIntelligence(text);
-
-    return {
-      docType: 'CIN',
-      confidence: Math.min(100, score),
-      matchedKeywords: matched,
-      reason: matched.length > 0 ? `Matched Import Notice: ${matched.join(', ')}` : '',
       metadata: { vin: vinRes.vin },
     };
   },
