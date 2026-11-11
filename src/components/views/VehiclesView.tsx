@@ -178,7 +178,7 @@ export const VehiclesView: React.FC<VehiclesViewProps> = ({
                     )}
                   </td>
                   <td className="py-3 px-4 font-mono text-slate-700 whitespace-nowrap">
-                    {vehicle.build_date}
+                    {vehicle.build_date || '—'}
                   </td>
                   <td className="py-3 px-4 font-mono font-semibold text-red-800 bg-red-50/30 whitespace-nowrap">
                     {vehicle.via_no || '—'}

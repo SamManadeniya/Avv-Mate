@@ -537,6 +537,17 @@ export const App: React.FC = () => {
     setComplianceJobs(updatedJobs);
 
     // Auto-link vehicle if new or update existing missing fields
+    const isPlaceholderBuildDate = (val?: string | null): boolean => {
+      if (!val || !val.trim() || val.trim() === '—') return true;
+      const trimmed = val.trim();
+      return (
+        trimmed.includes('2026-11') ||
+        /^(0?1\/)?11\/(2026|1\/2026)$/i.test(trimmed) ||
+        /^11\/1\/2026$/i.test(trimmed) ||
+        /^nov\s*2026$/i.test(trimmed)
+      );
+    };
+
     let updatedVehicles = vehicles;
     if (savedJob.vin) {
       const vIdx = vehicles.findIndex(v => v.vin.toUpperCase() === savedJob.vin.toUpperCase());
@@ -546,14 +557,18 @@ export const App: React.FC = () => {
 
       if (vIdx >= 0) {
         const currentV = vehicles[vIdx];
-        const isDefaultBuildDate = !currentV.build_date || currentV.build_date.includes('2026-11') || currentV.build_date === '11/2026';
+        const hasFreshBuildDate = Boolean((savedJob as any)._hasFreshBuildDate);
+        const resolvedBuildDate =
+          ((isPlaceholderBuildDate(currentV.build_date) || hasFreshBuildDate) && jobBuildDate)
+            ? jobBuildDate
+            : (isPlaceholderBuildDate(currentV.build_date) ? '' : currentV.build_date);
 
         updatedVehicles = [...vehicles];
         updatedVehicles[vIdx] = {
           ...currentV,
           unique_id: currentV.unique_id || jobUniqueId || currentV.unique_id,
           via_no: currentV.via_no || jobViaNo || currentV.via_no,
-          build_date: (isDefaultBuildDate && jobBuildDate) ? jobBuildDate : (currentV.build_date || jobBuildDate || ''),
+          build_date: resolvedBuildDate,
           raw_id: savedJob.raw_id || currentV.raw_id,
           raw_workshop_name: savedJob.raw_workshop_name || currentV.raw_workshop_name,
           mre_no: savedJob.mre_no || currentV.mre_no,
@@ -566,7 +581,7 @@ export const App: React.FC = () => {
         const newV: Vehicle = {
           vin: savedJob.vin.toUpperCase(),
           unique_id: jobUniqueId || null,
-          build_date: jobBuildDate || new Date().toISOString().slice(0, 7),
+          build_date: jobBuildDate || '',
           via_no: jobViaNo || null,
           raw_id: savedJob.raw_id || null,
           raw_workshop_name: savedJob.raw_workshop_name || null,

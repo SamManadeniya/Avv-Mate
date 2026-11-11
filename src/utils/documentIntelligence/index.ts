@@ -148,9 +148,9 @@ export async function processFileIntelligently(
     };
   }
 
-  // Step 4: Handle PDFs (Fast Native Extraction + OCR Fallback for Scanned PDFs)
+  // Step 4: Handle PDFs (Fast Native Extraction + AcroForms + OCR Fallback)
   if (signature.isPdf) {
-    const contentResult: ExtractedContentResult = await extractTextFromPdf(file, onProgress);
+    let contentResult: ExtractedContentResult = await extractTextFromPdf(file, onProgress);
 
     let bestRecognition: RecognitionResult | null = null;
     let highestScore = 0;
@@ -160,6 +160,29 @@ export async function processFileIntelligently(
       if (res.confidence > highestScore) {
         highestScore = res.confidence;
         bestRecognition = res;
+      }
+    }
+
+    // Safety net: if a CIN or EC PDF has digital black template text (>120 chars)
+    // but buildDate wasn't extracted (e.g. vector curves, image stamps, or unflattened appearance streams),
+    // run Page-1 Canvas OCR and re-evaluate!
+    if (
+      bestRecognition &&
+      (bestRecognition.docType === 'CIN' || bestRecognition.docType === 'EC') &&
+      !bestRecognition.metadata.buildDate &&
+      !contentResult.isScanned
+    ) {
+      const ocrContent = await extractTextFromPdf(file, onProgress, true);
+      if (ocrContent.text && ocrContent.text.length > contentResult.text.length) {
+        contentResult = ocrContent;
+        const targetRec = ALL_RECOGNIZERS.find(r => r.type === bestRecognition!.docType);
+        if (targetRec) {
+          const updatedRes = targetRec.evaluate(contentResult.text, file.name);
+          bestRecognition = {
+            ...updatedRes,
+            confidence: Math.max(bestRecognition.confidence, updatedRes.confidence),
+          };
+        }
       }
     }
 
@@ -244,7 +267,9 @@ export async function processBatchIntelligently(
     if (result.metadata.model && !batchModel) batchModel = result.metadata.model;
     if (result.metadata.viaNo && !batchViaNo) batchViaNo = result.metadata.viaNo;
     if (result.metadata.uniqueId && !batchUniqueId) batchUniqueId = result.metadata.uniqueId;
-    if (result.metadata.buildDate && !batchBuildDate) batchBuildDate = result.metadata.buildDate;
+    if (result.metadata.buildDate && (!batchBuildDate || result.target === 'CIN')) {
+      batchBuildDate = result.metadata.buildDate;
+    }
 
     fileResults.push(result);
   }

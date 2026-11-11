@@ -18,7 +18,7 @@ export const complianceJobService = {
     return found || null;
   },
 
-  async create(job: Partial<ComplianceJob>): Promise<ComplianceJob> {
+  async create(job: Partial<ComplianceJob>, skipSheetSync = false): Promise<ComplianceJob> {
     const currentJobs = await this.getAll();
     const cached = googleSheetsService.getCachedMasterData();
 
@@ -65,7 +65,7 @@ export const complianceJobService = {
       modelReports: cached?.modelReports || [],
     });
 
-    if (googleSheetsService.isConfigured()) {
+    if (!skipSheetSync && googleSheetsService.isConfigured()) {
       googleSheetsService.syncAllDataToMasterSheet(
         updatedJobs,
         cached?.vehicles || [],
@@ -77,7 +77,7 @@ export const complianceJobService = {
     return newJob;
   },
 
-  async update(id: string, updates: Partial<ComplianceJob>): Promise<ComplianceJob> {
+  async update(id: string, updates: Partial<ComplianceJob>, skipSheetSync = false): Promise<ComplianceJob> {
     const currentJobs = await this.getAll();
     const cached = googleSheetsService.getCachedMasterData();
 
@@ -103,7 +103,7 @@ export const complianceJobService = {
       modelReports: cached?.modelReports || [],
     });
 
-    if (googleSheetsService.isConfigured()) {
+    if (!skipSheetSync && googleSheetsService.isConfigured()) {
       googleSheetsService.syncAllDataToMasterSheet(
         updatedJobs,
         cached?.vehicles || [],

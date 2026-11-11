@@ -8,6 +8,9 @@ export interface ExtractedPdfMetadata {
   mreNo?: string;
   make?: string;
   model?: string;
+  viaNo?: string;
+  uniqueId?: string;
+  buildDate?: string;
   detectedDocType?: DocType;
   confidence: 'high' | 'medium' | 'low' | 'none';
   matchReason?: string;
@@ -31,6 +34,9 @@ export async function extractPdfTextAndMetadata(file: File): Promise<ExtractedPd
       mreNo: result.metadata.mreNo,
       make: result.metadata.make,
       model: result.metadata.model,
+      viaNo: result.metadata.viaNo,
+      uniqueId: result.metadata.uniqueId,
+      buildDate: result.metadata.buildDate,
       detectedDocType: docType,
       confidence: result.confidence === 'manual' ? 'low' : result.confidence,
       matchReason: result.reason,

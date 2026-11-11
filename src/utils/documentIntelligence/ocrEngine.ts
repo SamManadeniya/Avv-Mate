@@ -36,13 +36,99 @@ export interface ExtractedContentResult {
   extractionTimeMs: number;
 }
 
+interface SpatialToken {
+  str: string;
+  x: number;
+  y: number;
+}
+
 /**
- * Extracts text from a PDF file using pdfjs-dist.
- * If the PDF has no text layer (scanned PDF), renders page 1 to canvas and runs Tesseract OCR.
+ * Reconstructs visual reading order (top-to-bottom rows, left-to-right columns)
+ * combining native text items and AcroForm/FreeText annotations so overlaid blue form
+ * fields and multi-column PDF tables remain adjacent to their labels.
+ */
+async function extractPageVisualText(page: any): Promise<string> {
+  const tokens: SpatialToken[] = [];
+  const rawFallback: string[] = [];
+
+  try {
+    const textContent = await page.getTextContent();
+    for (const item of textContent?.items || []) {
+      if (!item || typeof item.str !== 'string') continue;
+      const trimmed = item.str.trim();
+      if (!trimmed) continue;
+      rawFallback.push(trimmed);
+      if (Array.isArray(item.transform) && item.transform.length >= 6) {
+        tokens.push({ str: trimmed, x: item.transform[4], y: item.transform[5] });
+      }
+    }
+  } catch (_) {}
+
+  const namedFieldHints: string[] = [];
+  try {
+    const annotations = await page.getAnnotations();
+    for (const annot of annotations || []) {
+      if (!annot) continue;
+      const rawVal = annot.fieldValue ?? annot.contentsObj?.str ?? annot.contents ?? '';
+      const valStr = Array.isArray(rawVal) ? rawVal.join(' ').trim() : String(rawVal || '').trim();
+      if (!valStr || valStr === 'Off') continue;
+
+      if (Array.isArray(annot.rect) && annot.rect.length === 4) {
+        const ax = Number(annot.rect[0]) || 0;
+        const ay = ((Number(annot.rect[1]) || 0) + (Number(annot.rect[3]) || 0)) / 2;
+        const alreadyPresentNearby = tokens.some(
+          t => t.str === valStr && Math.abs(t.y - ay) <= 12 && Math.abs(t.x - ax) <= 25
+        );
+        if (!alreadyPresentNearby) {
+          tokens.push({ str: valStr, x: ax, y: ay });
+        }
+      } else {
+        rawFallback.push(valStr);
+      }
+
+      if (annot.fieldName && typeof annot.fieldName === 'string') {
+        const readableName = annot.fieldName.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+        if (/(build|date|manufacture|vin|chassis|raw|mre|cre|make|model)/i.test(readableName)) {
+          namedFieldHints.push(`${readableName}: ${valStr}`);
+        }
+      }
+    }
+  } catch (_) {}
+
+  if (tokens.length === 0) {
+    return [...rawFallback, ...namedFieldHints].join(' ');
+  }
+
+  tokens.sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows: Array<{ y: number; items: SpatialToken[] }> = [];
+  for (const t of tokens) {
+    const lastRow = rows[rows.length - 1];
+    if (lastRow && Math.abs(lastRow.y - t.y) <= 8) {
+      lastRow.items.push(t);
+    } else {
+      rows.push({ y: t.y, items: [t] });
+    }
+  }
+
+  const orderedLines = rows.map(row => {
+    row.items.sort((a, b) => a.x - b.x);
+    return row.items.map(i => i.str).join(' ');
+  });
+
+  if (namedFieldHints.length > 0) {
+    orderedLines.push(namedFieldHints.join(' '));
+  }
+  return orderedLines.join(' ');
+}
+
+/**
+ * Extracts text from a PDF file using pdfjs-dist (including AcroForm annotations and spatial layout order).
+ * If the PDF has no text layer (scanned PDF) or forceOcr is requested, renders page 1 and runs Tesseract OCR.
  */
 export async function extractTextFromPdf(
   file: File,
-  onProgress?: (status: string) => void
+  onProgress?: (status: string) => void,
+  forceOcr = false
 ): Promise<ExtractedContentResult> {
   const startTime = Date.now();
   try {
@@ -57,18 +143,36 @@ export async function extractTextFromPdf(
     for (let p = 1; p <= maxPagesToRead; p++) {
       onProgress?.(`Reading PDF page ${p} of ${pageCount}...`);
       const page = await pdfDoc.getPage(p);
-      const textContent = await page.getTextContent();
-      const pageStrings = textContent.items
-        .map((item: any) => ('str' in item ? item.str : ''))
-        .filter(Boolean);
-      fullText += ' ' + pageStrings.join(' ');
+      const pageText = await extractPageVisualText(page);
+      fullText += ' ' + pageText;
     }
+
+    // Read document-level AcroForm field values as an extra safeguard
+    try {
+      const fieldObjects = await (pdfDoc as any).getFieldObjects?.();
+      if (fieldObjects && typeof fieldObjects === 'object') {
+        const extraFields: string[] = [];
+        for (const [name, list] of Object.entries<any>(fieldObjects)) {
+          if (!Array.isArray(list)) continue;
+          for (const entry of list) {
+            const val = Array.isArray(entry?.value) ? entry.value.join(' ').trim() : String(entry?.value || '').trim();
+            if (val && val !== 'Off' && !fullText.includes(val)) {
+              const readable = name.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim();
+              extraFields.push(`${readable}: ${val}`);
+            }
+          }
+        }
+        if (extraFields.length > 0) {
+          fullText += ' ' + extraFields.join(' ');
+        }
+      }
+    } catch (_) {}
 
     const cleanText = fullText.replace(/\s+/g, ' ').trim();
     const hasAnyComplianceWord = /concessional|approval|rules|workshop|declaration|export|certificate|shaken|damage|corrosion|inspection|checklist|instruction|consumer|import|recall|vin|chassis|rav/i.test(cleanText);
 
-    // If substantial digital text with compliance content is present, return immediately
-    if (cleanText.length >= 120 && hasAnyComplianceWord) {
+    // If substantial digital text with compliance content is present (and OCR fallback wasn't explicitly requested), return immediately
+    if (!forceOcr && cleanText.length >= 120 && hasAnyComplianceWord) {
       return {
         text: cleanText,
         isScanned: false,
@@ -78,8 +182,8 @@ export async function extractTextFromPdf(
       };
     }
 
-    // Sparse or empty text -> Scanned PDF. Fall back to OCR on Page 1
-    onProgress?.('Scanned PDF detected. Rendering page for OCR...');
+    // Sparse/empty text OR forced OCR fallback for vector-outlined/stamped PDFs -> Render Page 1 & OCR
+    onProgress?.(forceOcr ? 'Running visual OCR scan on document fields...' : 'Scanned PDF detected. Rendering page for OCR...');
     const page1 = await pdfDoc.getPage(1);
     const viewport = page1.getViewport({ scale: 1.8 }); // ~150-180 DPI for crisp OCR
 
@@ -98,9 +202,10 @@ export async function extractTextFromPdf(
       };
     }
 
-    await page1.render({ canvasContext: ctx, viewport } as any).promise;
+    const annotationMode = (pdfjsLib as any).AnnotationMode?.ENABLE_FORMS ?? 2;
+    await page1.render({ canvasContext: ctx, viewport, annotationMode } as any).promise;
 
-    onProgress?.('Running OCR on scanned PDF page...');
+    onProgress?.('Running OCR on PDF page...');
     const worker = await getTesseractWorker(onProgress);
     const { data } = await worker.recognize(canvas);
 
@@ -110,7 +215,7 @@ export async function extractTextFromPdf(
       text: ocrCombined,
       isScanned: true,
       pageCount,
-      engineUsed: 'wasm_ocr',
+      engineUsed: cleanText.length >= 120 ? 'hybrid' : 'wasm_ocr',
       extractionTimeMs: Date.now() - startTime,
     };
   } catch (err) {

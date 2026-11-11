@@ -31,6 +31,121 @@ export interface DocumentRecognizer {
   evaluate(text: string, fileName: string): RecognitionResult;
 }
 
+const MONTH_NAME_MAP: Record<string, number> = {
+  jan: 1, january: 1,
+  feb: 2, february: 2,
+  mar: 3, march: 3,
+  apr: 4, april: 4,
+  may: 5,
+  jun: 6, june: 6,
+  jul: 7, july: 7,
+  aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9,
+  oct: 10, october: 10,
+  nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+function normalizeFullWidthChars(input: string): string {
+  return input
+    .replace(/[\uFF01-\uFF5E]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/[\u3000\u00A0]/g, ' ');
+}
+
+function formatValidBuildDate(month: number, year: number): string | undefined {
+  const maxYear = new Date().getFullYear() + 1;
+  if (!Number.isFinite(month) || !Number.isFinite(year)) return undefined;
+  if (month < 1 || month > 12) return undefined;
+  if (year < 1970 || year > maxYear) return undefined;
+  return `${String(month).padStart(2, '0')}/${year}`;
+}
+
+function parseBuildDateSnippet(snippet: string): string | undefined {
+  // 1. YYYY-MM-DD or YYYY/MM/DD
+  const ymd = snippet.match(/(?<![A-Za-z0-9\/\-\.])(\d{4})\s*[\/\-\.]\s*(\d{1,2})\s*[\/\-\.]\s*(\d{1,2})(?![A-Za-z0-9\/\-\.])/);
+  if (ymd) {
+    const res = formatValidBuildDate(parseInt(ymd[2], 10), parseInt(ymd[1], 10));
+    if (res) return res;
+  }
+
+  // 2. DD/MM/YYYY (e.g. 15/09/2016)
+  const dmy = snippet.match(/(?<![A-Za-z0-9\/\-\.])(\d{1,2})\s*[\/\-\.]\s*(\d{1,2})\s*[\/\-\.]\s*(\d{4})(?![A-Za-z0-9\/\-\.])/);
+  if (dmy) {
+    const res = formatValidBuildDate(parseInt(dmy[2], 10), parseInt(dmy[3], 10));
+    if (res) return res;
+  }
+
+  // 3. MM / YYYY or YYYY / MM
+  const my = snippet.match(/(?<![A-Za-z0-9\/\-\.])(\d{1,2})\s*[\/\-\.]\s*(\d{4})(?![A-Za-z0-9\/\-\.])/);
+  if (my) {
+    const res = formatValidBuildDate(parseInt(my[1], 10), parseInt(my[2], 10));
+    if (res) return res;
+  }
+
+  const ym = snippet.match(/(?<![A-Za-z0-9\/\-\.])(\d{4})\s*[\/\-\.]\s*(\d{1,2})(?![A-Za-z0-9\/\-\.])/);
+  if (ym) {
+    const res = formatValidBuildDate(parseInt(ym[2], 10), parseInt(ym[1], 10));
+    if (res) return res;
+  }
+
+  // 4. Named months (e.g. "Sep 2016", "September 2016", "2019 Nov")
+  const namedMy = snippet.match(/\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b[\s,\-\/]*(\d{4})\b/i);
+  if (namedMy) {
+    const m = MONTH_NAME_MAP[namedMy[1].toLowerCase()];
+    const y = parseInt(namedMy[2], 10);
+    const res = formatValidBuildDate(m, y);
+    if (res) return res;
+  }
+
+  return undefined;
+}
+
+/**
+ * Multi-tier Build Date extractor resilient to wrapped headers ("Original build ... date"),
+ * spaced numbers ("11 / 2019"), interleaved table columns, and AcroForm overlays.
+ */
+export function extractBuildDateFromText(rawText: string, allowStandaloneCinFallback = false): string | undefined {
+  if (!rawText) return undefined;
+  const text = normalizeFullWidthChars(rawText);
+
+  const labelRegex = /(?:Original\s+build(?:\s+date)?|Build\s+month(?:\s*[\/\-]\s*year)?|Build\s+date|Build\s+yr\s*[\/\-]\s*mth|Date\s+of\s+(?:build|manufacture)|Manufacture\s+(?:date|month(?:\s*[\/\-]\s*year)?)|Month\s*(?:[\/\-]\s*year)?\s+of\s+(?:build|manufacture)|Production\s+(?:date|month(?:\s*[\/\-]\s*year)?)|Year\s+of\s+manufacture)/gi;
+
+  for (const match of text.matchAll(labelRegex)) {
+    const startIdx = (match.index ?? 0) + match[0].length;
+    let slice = text.slice(startIdx, startIdx + 120);
+
+    // Stop before crossing into an unrelated date header (import, validity, inspection, approval)
+    const stopIdx = slice.search(/\b(?:Date\s+of\s+import|Import(?:ation)?\s+date|Valid\s+from|Approval\s+date|Verification\s+date|Entry\s+date|Country\s+of\s+first|Odometer\s+reading)\b/i);
+    if (stopIdx > 0) {
+      slice = slice.slice(0, stopIdx);
+    }
+
+    const parsed = parseBuildDateSnippet(slice);
+    if (parsed) return parsed;
+  }
+
+  // Fallback for CIN PDFs where form field overlays were serialized at the end of the page stream
+  if (allowStandaloneCinFallback) {
+    const currentYear = new Date().getFullYear();
+    const standaloneMatches = Array.from(
+      text.matchAll(/(?<![A-Za-z0-9\/\-\.])(\d{1,2})\s*[\/\-\.]\s*(\d{4})(?![A-Za-z0-9\/\-\.])|(?<![A-Za-z0-9\/\-\.])(\d{4})\s*[\/\-\.]\s*(\d{1,2})(?![A-Za-z0-9\/\-\.])/g)
+    );
+    for (const m of standaloneMatches) {
+      const month = m[1] ? parseInt(m[1], 10) : parseInt(m[4], 10);
+      const year = m[2] ? parseInt(m[2], 10) : parseInt(m[3], 10);
+      if (year >= 1975 && year < currentYear && month >= 1 && month <= 12) {
+        const idx = m.index ?? 0;
+        const preceding = text.slice(Math.max(0, idx - 45), idx).toLowerCase();
+        if (!/(import|valid|expiry|approval|declaration|verify|submit)/i.test(preceding)) {
+          return `${String(month).padStart(2, '0')}/${year}`;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
 // 1. Export Certificate / Japanese Shaken Recognizer (EC)
 export const exportCertificateRecognizer: DocumentRecognizer = {
   type: 'EC',
@@ -84,24 +199,29 @@ export const exportCertificateRecognizer: DocumentRecognizer = {
     const vinRes = extractVinIntelligence(text);
 
     // Extract Build Date (First Registration Date / 初度登録年月) from Export Certificate
+    const ecNorm = normalizeFullWidthChars(text);
     let buildDate: string | undefined;
-    const jpEraMatch = text.match(/(?:初度登録年月|初度登録)[^\d令和平成\n]{0,25}(令和|平成)\s*([0-9元]{1,2})\s*年\s*([0-9]{1,2})\s*月/i);
+    const jpEraMatch = ecNorm.match(/(?:初度登録年月|初度登録|First\s+registration)[^\d令和平成昭和RHrh]{0,30}(令和|平成|昭和|R|H|S)\s*([0-9元]{1,2})\s*[年\/\.\-]\s*([0-9]{1,2})\s*月?/i);
     if (jpEraMatch) {
-      const era = jpEraMatch[1];
+      const era = jpEraMatch[1].toUpperCase();
       const eraYearRaw = jpEraMatch[2] === '元' ? 1 : parseInt(jpEraMatch[2], 10);
       const month = parseInt(jpEraMatch[3], 10);
-      const fullYear = era === '令和' ? 2018 + eraYearRaw : 1988 + eraYearRaw;
-      if (!isNaN(fullYear) && !isNaN(month)) {
-        buildDate = `${String(month).padStart(2, '0')}/${fullYear}`;
-      }
+      const fullYear = (era === '令和' || era === 'R')
+        ? 2018 + eraYearRaw
+        : (era === '平成' || era === 'H')
+          ? 1988 + eraYearRaw
+          : 1925 + eraYearRaw;
+      buildDate = formatValidBuildDate(month, fullYear);
     } else {
-      const ymMatch = text.match(/(?:初度登録年月|初度登録)[^A-Za-z0-9]{0,35}(\d{4})\s*[年\/\-]\s*(\d{1,2})/i);
+      const ymMatch = ecNorm.match(/(?:初度登録年月|初度登録)[^A-Za-z0-9]{0,35}(\d{4})\s*[年\/\-]\s*(\d{1,2})/i);
       if (ymMatch) {
-        buildDate = `${ymMatch[2].padStart(2, '0')}/${ymMatch[1]}`;
+        buildDate = formatValidBuildDate(parseInt(ymMatch[2], 10), parseInt(ymMatch[1], 10));
       } else {
-        const ymRevMatch = text.match(/(?:初度登録年月|初度登録)[^A-Za-z0-9]{0,35}(\d{1,2})\s*[年\/\-]\s*(\d{4})/i);
+        const ymRevMatch = ecNorm.match(/(?:初度登録年月|初度登録)[^A-Za-z0-9]{0,35}(\d{1,2})\s*[年\/\-]\s*(\d{4})/i);
         if (ymRevMatch) {
-          buildDate = `${ymRevMatch[1].padStart(2, '0')}/${ymRevMatch[2]}`;
+          buildDate = formatValidBuildDate(parseInt(ymRevMatch[1], 10), parseInt(ymRevMatch[2], 10));
+        } else {
+          buildDate = extractBuildDateFromText(ecNorm, false);
         }
       }
     }
@@ -328,20 +448,8 @@ export const consumerInformationNoticeRecognizer: DocumentRecognizer = {
       score += 80;
     }
 
-    // Extract Build Date (Build month/year) from CIN
-    let buildDate: string | undefined;
-    const buildMatch = text.match(
-      /(?:Build\s+month(?:\s*[\/\-]\s*year)?|Build\s+date|Date\s+of\s+manufacture|Manufacture\s+date)[^A-Za-z0-9]{0,40}(\d{1,2}\s*[\/\-]\s*\d{4}|\d{4}\s*[\/\-]\s*\d{1,2})/i
-    );
-    if (buildMatch) {
-      const rawDate = buildMatch[1].replace(/\s+/g, '').replace(/-/g, '/');
-      const parts = rawDate.split('/');
-      if (parts[0].length === 4) {
-        buildDate = `${parts[1].padStart(2, '0')}/${parts[0]}`;
-      } else {
-        buildDate = `${parts[0].padStart(2, '0')}/${parts[1]}`;
-      }
-    }
+    // Extract Build Date (Build month/year, Original build date, etc.) from CIN
+    const buildDate = extractBuildDateFromText(text, true);
 
     // Extract VIA # from CIN table
     let viaNo: string | undefined;

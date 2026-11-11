@@ -189,6 +189,11 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       // Match vehicle
       const v = vehicles.find(item => item.vin.toUpperCase() === jobToEdit.vin.toUpperCase());
       setMatchedVehicle(v || null);
+      setDetectedMake(jobToEdit.make || v?.make || '');
+      setDetectedModel(jobToEdit.model || v?.model || '');
+      setExtractedViaNo(null);
+      setExtractedUniqueId(null);
+      setExtractedBuildDate(null);
     } else {
       // New Job mode
       if (lastFolderNo) {
@@ -203,6 +208,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setVin('');
       setRawId('');
       setMreNo('');
+      setDetectedMake('');
+      setDetectedModel('');
       setRequestReceived(new Date().toISOString().slice(0, 10));
       setVideosUrl('');
       setVideoList([]);
@@ -228,7 +235,14 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
     setIsDriveConfigured(googleDriveService.isConfigured());
     setDriveFeedback(null);
     setErrorMessage('');
-  }, [isOpen, jobToEdit, vehicles]);
+  }, [isOpen, jobToEdit]);
+
+  // Keep matchedVehicle synchronized without wiping open form inputs when background vehicle sync finishes
+  useEffect(() => {
+    if (!isOpen || !vin) return;
+    const match = vehicles.find(v => v.vin.toUpperCase() === vin.toUpperCase());
+    setMatchedVehicle(match || null);
+  }, [vehicles, vin, isOpen]);
 
   // Helper to smartly map Make + Model strings to Model Reports (e.g. "BMW" + "M340i xDrive Touring" -> "MRE-000907")
   const resolveMreFromMakeModel = (makeCandidate?: string, modelCandidate?: string): ModelReport | undefined => {
@@ -287,8 +301,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       setUploadingDoc(docType);
       setErrorMessage('');
 
-      // 1. Deep PDF Content Extraction: Read inside the PDF to auto-fill Section 1
-      if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      // 1. Deep Document Content Extraction: Read inside the PDF/image to auto-fill Section 1 & vehicle master metadata
+      if (docType !== 'PHOTOS' && (file.type === 'application/pdf' || /\.(pdf|jpe?g|png|webp)$/i.test(file.name))) {
         try {
           const metadata = await extractPdfTextAndMetadata(file);
           if (metadata.vin && !vin) {
@@ -301,6 +315,11 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           }
           if (metadata.make) setDetectedMake(metadata.make);
           if (metadata.model) setDetectedModel(metadata.model);
+          if (metadata.viaNo) setExtractedViaNo(metadata.viaNo);
+          if (metadata.uniqueId) setExtractedUniqueId(metadata.uniqueId);
+          if (metadata.buildDate && (!extractedBuildDate || docType === 'CIN')) {
+            setExtractedBuildDate(metadata.buildDate);
+          }
 
           if (metadata.mreNo && metadata.mreNo !== 'MRE-000000' && (!mreNo || mreNo === 'MRE-000000')) {
             const mr = modelReports.find(m => m.mre_no.toUpperCase() === metadata.mreNo!.toUpperCase());
@@ -998,6 +1017,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
           savedJob = await complianceJobService.update(jobToEdit.id, {
             raw_id: rawId || null,
             mre_no: mreNo || null,
+            via_no: extractedViaNo || jobToEdit.via_no || null,
+            build_date: extractedBuildDate || jobToEdit.build_date || null,
             request_received: requestReceived,
             videos_url: videosUrl || null,
             avv_verification_date: avvVerificationDate || null,
@@ -1007,7 +1028,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             recall_check_date: recallCheckDate || null,
             status,
             error_note: errorNote || null,
-          });
+          }, true);
         } catch (updateErr) {
           console.warn('Supabase update bypassed/failed, updating locally:', updateErr);
           savedJob = {
@@ -1046,6 +1067,8 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             vin: vin.toUpperCase().trim(),
             raw_id: rawId || null,
             mre_no: mreNo || null,
+            via_no: extractedViaNo || null,
+            build_date: extractedBuildDate || null,
             request_received: requestReceived,
             videos_url: videosUrl || null,
             avv_verification_date: avvVerificationDate || null,
@@ -1055,7 +1078,7 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
             recall_check_date: recallCheckDate || null,
             status,
             error_note: errorNote || null,
-          });
+          }, true);
         } catch (createErr) {
           console.warn('Supabase create bypassed/failed, creating locally:', createErr);
           savedJob = {
@@ -1164,8 +1187,9 @@ export const ComplianceJobModal: React.FC<ComplianceJobModalProps> = ({
       if (extractedViaNo && !savedJob.via_no) {
         savedJob.via_no = extractedViaNo;
       }
-      if (extractedBuildDate && (!savedJob.build_date || savedJob.build_date.includes('2026-11') || savedJob.build_date === '11/2026')) {
+      if (extractedBuildDate) {
         savedJob.build_date = extractedBuildDate;
+        (savedJob as any)._hasFreshBuildDate = true;
       }
       if (extractedUniqueId) {
         (savedJob as any).unique_id = extractedUniqueId;
